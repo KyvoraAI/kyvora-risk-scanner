@@ -3,18 +3,25 @@ exports.handler = async function (event) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "POST, OPTIONS"
   };
 
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers, body: "" };
+    return {
+      statusCode: 204,
+      headers,
+      body: ""
+    };
   }
 
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({ error: "Method not allowed" }),
+      body: JSON.stringify({
+        success: false,
+        error: "Method not allowed"
+      })
     };
   }
 
@@ -27,8 +34,9 @@ exports.handler = async function (event) {
         statusCode: 400,
         headers,
         body: JSON.stringify({
-          error: "Token address is required",
-        }),
+          success: false,
+          error: "Solana token address is required."
+        })
       };
     }
 
@@ -39,53 +47,54 @@ exports.handler = async function (event) {
         statusCode: 500,
         headers,
         body: JSON.stringify({
-          error: "HELIUS_API_KEY is not configured",
-        }),
+          success: false,
+          error: "Helius API key is not configured."
+        })
       };
     }
 
-    const heliusUrl =
-      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+    const rpc = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
 
-    // -----------------------------------------
-    // 1. TOKEN INFORMATION
-    // -----------------------------------------
-
-    const assetResponse = await fetch(heliusUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "kyvora-asset",
-        method: "getAsset",
-        params: {
-          id: address,
-          displayOptions: {
-            showFungible: true,
-          },
+    async function rpcCall(method, params) {
+      const response = await fetch(rpc, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
         },
-      }),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "kyvora",
+          method,
+          params
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(
+          data.error?.message || "Helius request failed."
+        );
+      }
+
+      return data.result;
+    }
+
+    // ----------------------------------------
+    // TOKEN ASSET
+    // ----------------------------------------
+
+    const asset = await rpcCall("getAsset", {
+      id: address,
+      displayOptions: {
+        showFungible: true
+      }
     });
 
-    const assetJson = await assetResponse.json();
-
-    if (
-      !assetResponse.ok ||
-      assetJson.error ||
-      !assetJson.result
-    ) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          error: "Token not found or invalid Solana token address",
-        }),
-      };
+    if (!asset) {
+      throw new Error("Token was not found.");
     }
 
-    const asset = assetJson.result;
     const tokenInfo = asset.token_info || {};
     const metadata = asset.content?.metadata || {};
 
@@ -94,33 +103,52 @@ exports.handler = async function (event) {
 
     const decimals = Number(tokenInfo.decimals ?? 0);
 
-    let rawSupply = tokenInfo.supply;
+    /*
+      Helius can expose supply in different fields.
+      We keep the raw value separate and normalize it carefully.
+    */
 
-    if (rawSupply === undefined || rawSupply === null) {
-      rawSupply = tokenInfo.total_supply;
+    let rawSupply = null;
+
+    if (tokenInfo.supply !== undefined) {
+      rawSupply = Number(tokenInfo.supply);
+    } else if (tokenInfo.total_supply !== undefined) {
+      rawSupply = Number(tokenInfo.total_supply);
     }
 
     let supply = null;
 
-    if (rawSupply !== undefined && rawSupply !== null) {
-      const numericSupply = Number(rawSupply);
-
-      if (Number.isFinite(numericSupply)) {
-        supply =
-          decimals > 0
-            ? numericSupply / Math.pow(10, decimals)
-            : numericSupply;
-      }
+    if (
+      rawSupply !== null &&
+      Number.isFinite(rawSupply)
+    ) {
+      /*
+        Helius fungible token supply is normally represented
+        according to token decimals. Avoid converting twice.
+      */
+      supply =
+        decimals > 0
+          ? rawSupply / Math.pow(10, decimals)
+          : rawSupply;
     }
 
+    // ----------------------------------------
+    // PRICE
+    // ----------------------------------------
+
+    const priceValue =
+      tokenInfo.price_info?.price_per_token;
+
     const price =
-      tokenInfo.price_info?.price_per_token != null
-        ? Number(tokenInfo.price_info.price_per_token)
+      priceValue !== undefined &&
+      priceValue !== null &&
+      Number.isFinite(Number(priceValue))
+        ? Number(priceValue)
         : null;
 
-    // -----------------------------------------
-    // 2. AUTHORITIES
-    // -----------------------------------------
+    // ----------------------------------------
+    // AUTHORITIES
+    // ----------------------------------------
 
     const mintAuthority =
       tokenInfo.mint_authority ||
@@ -132,283 +160,271 @@ exports.handler = async function (event) {
       asset.freeze_authority ||
       null;
 
-    // -----------------------------------------
-    // 3. HOLDER DATA
-    // -----------------------------------------
+    // ----------------------------------------
+    // TOKEN PROGRAM
+    // ----------------------------------------
+
+    const tokenProgram =
+      tokenInfo.token_program ||
+      tokenInfo.program ||
+      asset.interface ||
+      "Unknown";
+
+    // ----------------------------------------
+    // HOLDERS
+    // ----------------------------------------
 
     let holderCount = null;
     let topHolderPercent = null;
     let topHolderAmount = null;
 
     try {
-      const holderResponse = await fetch(heliusUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "kyvora-holders",
-          method: "getTokenAccounts",
-          params: {
-            mint: address,
-            page: 1,
-            limit: 1000,
-            displayOptions: {},
-          },
-        }),
-      });
-
-      const holderJson = await holderResponse.json();
+      const holderResult = await rpcCall(
+        "getTokenAccounts",
+        {
+          mint: address,
+          page: 1,
+          limit: 1000
+        }
+      );
 
       const accounts =
-        holderJson.result?.token_accounts || [];
+        holderResult?.token_accounts || [];
 
-      if (accounts.length > 0) {
-        const owners = new Map();
+      const owners = new Map();
 
-        for (const account of accounts) {
-          const owner = account.owner;
-          const amount = Number(account.amount || 0);
+      for (const account of accounts) {
+        const owner = account.owner;
 
-          if (!owner) continue;
+        if (!owner) continue;
 
-          owners.set(
-            owner,
-            (owners.get(owner) || 0) + amount
-          );
-        }
+        const amount = Number(
+          account.amount || 0
+        );
 
-        holderCount = owners.size;
+        if (!Number.isFinite(amount)) continue;
 
-        const balances = Array.from(
-          owners.values()
-        ).sort((a, b) => b - a);
+        owners.set(
+          owner,
+          (owners.get(owner) || 0) + amount
+        );
+      }
+
+      holderCount = owners.size;
+
+      const balances = Array.from(
+        owners.values()
+      ).sort((a, b) => b - a);
+
+      if (
+        balances.length > 0 &&
+        supply !== null &&
+        supply > 0
+      ) {
+        const rawTopAmount = balances[0];
+
+        topHolderAmount =
+          decimals > 0
+            ? rawTopAmount /
+              Math.pow(10, decimals)
+            : rawTopAmount;
+
+        topHolderPercent =
+          (topHolderAmount / supply) * 100;
 
         if (
-          balances.length > 0 &&
-          supply !== null &&
-          supply > 0
+          !Number.isFinite(topHolderPercent)
         ) {
-          const divisor = Math.pow(10, decimals);
-
-          const largestRawAmount = balances[0];
-
-          topHolderAmount =
-            decimals > 0
-              ? largestRawAmount / divisor
-              : largestRawAmount;
-
-          topHolderPercent =
-            (topHolderAmount / supply) * 100;
-
-          if (!Number.isFinite(topHolderPercent)) {
-            topHolderPercent = null;
-          }
+          topHolderPercent = null;
         }
       }
     } catch (holderError) {
       console.error(
-        "Holder analysis error:",
+        "Holder analysis failed:",
         holderError
       );
     }
 
-    // -----------------------------------------
-    // 4. KYVORA RISK ENGINE
-    // -----------------------------------------
+    // ----------------------------------------
+    // RISK ENGINE
+    // ----------------------------------------
 
-    let riskScore = 10;
+    let score = 10;
 
     const signals = [];
 
-    // Mint authority
     if (mintAuthority) {
-      riskScore += 25;
+      score += 25;
 
       signals.push({
         level: "HIGH",
         title: "Mint authority detected",
         description:
-          "Additional token supply may potentially be created.",
+          "The token may have an active authority capable of increasing supply."
       });
     } else {
       signals.push({
         level: "LOW",
         title: "Mint authority not detected",
         description:
-          "No active mint authority was returned.",
+          "No active mint authority was returned."
       });
     }
 
-    // Freeze authority
     if (freezeAuthority) {
-      riskScore += 20;
+      score += 20;
 
       signals.push({
         level: "HIGH",
         title: "Freeze authority detected",
         description:
-          "A freeze authority may be able to restrict token accounts.",
+          "An active freeze authority may restrict token accounts."
       });
     } else {
       signals.push({
         level: "LOW",
         title: "No freeze authority detected",
         description:
-          "No active freeze authority was returned.",
+          "No active freeze authority was returned."
       });
     }
 
-    // Metadata
-    if (!name || !symbol) {
-      riskScore += 10;
+    if (name !== "Unknown Token" && symbol !== "UNKNOWN") {
+      signals.push({
+        level: "LOW",
+        title: "Token metadata available",
+        description:
+          "Token name and symbol were successfully retrieved."
+      });
+    } else {
+      score += 10;
 
       signals.push({
         level: "MEDIUM",
         title: "Incomplete token metadata",
         description:
-          "Token name or symbol information is incomplete.",
-      });
-    } else {
-      signals.push({
-        level: "LOW",
-        title: "Token metadata available",
-        description:
-          "Token name and symbol were successfully returned.",
+          "Token metadata is incomplete or unavailable."
       });
     }
 
-    // Supply
-    if (supply === null) {
-      riskScore += 10;
+    if (
+      supply !== null &&
+      Number.isFinite(supply)
+    ) {
+      signals.push({
+        level: "LOW",
+        title: "Supply information available",
+        description:
+          "Token supply was successfully retrieved."
+      });
+    } else {
+      score += 10;
 
       signals.push({
         level: "MEDIUM",
         title: "Supply information unavailable",
         description:
-          "A valid token supply was not returned.",
-      });
-    } else {
-      signals.push({
-        level: "LOW",
-        title: "Supply information available",
-        description:
-          "Token supply and decimals were successfully retrieved.",
+          "A valid token supply could not be retrieved."
       });
     }
 
-    // Price
-    if (price === null || !Number.isFinite(price)) {
-      riskScore += 10;
+    if (price !== null) {
+      signals.push({
+        level: "LOW",
+        title: "Market price available",
+        description:
+          `Indexed price: $${price}`
+      });
+    } else {
+      score += 10;
 
       signals.push({
         level: "MEDIUM",
         title: "Market price unavailable",
         description:
-          "No current indexed token price was returned.",
-      });
-    } else {
-      signals.push({
-        level: "LOW",
-        title: "Market price available",
-        description:
-          `Indexed price: $${price}`,
+          "No indexed market price was returned."
       });
     }
 
-    // Holder analysis
     if (holderCount !== null) {
       signals.push({
         level: "LOW",
         title: "Holder distribution analyzed",
         description:
-          `${holderCount.toLocaleString()} unique holders detected in the analyzed token-account snapshot.`,
+          `${holderCount.toLocaleString()} unique holders detected in the analyzed snapshot.`
       });
     } else {
+      score += 5;
+
       signals.push({
         level: "MEDIUM",
         title: "Holder distribution unavailable",
         description:
-          "Holder data could not be retrieved for this scan.",
+          "Holder distribution could not be analyzed."
       });
     }
 
-    // Top holder concentration
     if (
       topHolderPercent !== null &&
       Number.isFinite(topHolderPercent)
     ) {
       if (topHolderPercent >= 50) {
-        riskScore += 30;
+        score += 30;
 
         signals.push({
           level: "CRITICAL",
-          title: "Very high top-holder concentration",
+          title: "Very high holder concentration",
           description:
-            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+            `Largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`
         });
       } else if (topHolderPercent >= 25) {
-        riskScore += 20;
+        score += 20;
 
         signals.push({
           level: "HIGH",
-          title: "High top-holder concentration",
+          title: "High holder concentration",
           description:
-            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+            `Largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`
         });
       } else if (topHolderPercent >= 10) {
-        riskScore += 10;
+        score += 10;
 
         signals.push({
           level: "MEDIUM",
-          title: "Moderate top-holder concentration",
+          title: "Moderate holder concentration",
           description:
-            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+            `Largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`
         });
       } else {
         signals.push({
           level: "LOW",
-          title: "Top-holder concentration appears limited",
+          title: "Limited top-holder concentration",
           description:
-            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+            `Largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`
         });
       }
     }
 
-    // Token program
-    const tokenProgram =
-      tokenInfo.token_program ||
-      tokenInfo.program ||
-      asset.interface ||
-      null;
+    signals.push({
+      level: "LOW",
+      title: "Token program identified",
+      description:
+        `Token program: ${tokenProgram}`
+    });
 
-    if (tokenProgram) {
-      signals.push({
-        level: "LOW",
-        title: "Token program identified",
-        description:
-          "The token program was successfully identified.",
-      });
-    }
-
-    // -----------------------------------------
-    // FINAL SCORE
-    // -----------------------------------------
-
-    riskScore = Math.max(
+    score = Math.max(
       0,
-      Math.min(100, riskScore)
+      Math.min(100, score)
     );
 
-    let riskLevel = "LOW";
+    let level = "LOW";
 
-    if (riskScore >= 75) {
-      riskLevel = "CRITICAL";
-    } else if (riskScore >= 50) {
-      riskLevel = "HIGH";
-    } else if (riskScore >= 30) {
-      riskLevel = "MEDIUM";
+    if (score >= 75) {
+      level = "CRITICAL";
+    } else if (score >= 50) {
+      level = "HIGH";
+    } else if (score >= 30) {
+      level = "MEDIUM";
     }
 
     return {
@@ -420,7 +436,7 @@ exports.handler = async function (event) {
 
         scanner: {
           name: "KYVORA",
-          version: "3.0",
+          version: "4.0"
         },
 
         token: {
@@ -430,27 +446,27 @@ exports.handler = async function (event) {
           decimals,
           supply,
           price,
-          tokenProgram,
+          tokenProgram
         },
 
         holders: {
           holderCount,
           topHolderPercent,
           topHolderAmount,
-          analyzedAccounts: 1000,
+          analyzedAccounts: 1000
         },
 
         risk: {
-          score: riskScore,
-          level: riskLevel,
-          signals,
+          score,
+          level,
+          signals
         },
 
         disclaimer:
-          "KYVORA provides risk indicators for research purposes. It does not guarantee that a token is safe or malicious.",
+          "KYVORA provides risk indicators for research purposes and does not guarantee that a token is safe or malicious.",
 
-        source: "Helius",
-      }),
+        source: "Helius"
+      })
     };
 
   } catch (error) {
@@ -462,9 +478,13 @@ exports.handler = async function (event) {
     return {
       statusCode: 500,
       headers,
+
       body: JSON.stringify({
-        error: "Unable to analyze token",
-      }),
+        success: false,
+        error:
+          error.message ||
+          "Unable to analyze token."
+      })
     };
   }
 };
