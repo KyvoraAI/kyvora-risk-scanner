@@ -94,6 +94,11 @@
       opacity: 0.9;
     }
 
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
     .result {
       display: none;
       margin-top: 25px;
@@ -115,11 +120,52 @@
       margin-bottom: 10px;
     }
 
+    .level {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 15px;
+    }
+
+    .token-info {
+      color: #c5ccd8;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 15px;
+      word-break: break-word;
+    }
+
+    .signals {
+      margin-top: 15px;
+    }
+
+    .signal {
+      padding: 12px;
+      margin-top: 10px;
+      border: 1px solid #263246;
+      border-radius: 8px;
+      background: #0b1019;
+    }
+
+    .signal-title {
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+
+    .signal-description {
+      color: #9ca6b5;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     .note {
       color: #8f98a8;
       font-size: 13px;
       margin-top: 15px;
       line-height: 1.5;
+    }
+
+    .error {
+      color: #ff8f8f;
     }
 
     footer {
@@ -154,7 +200,7 @@
         placeholder="Enter Solana token address"
       >
 
-      <button onclick="scanToken()">
+      <button id="scanButton" onclick="scanToken()">
         SCAN TOKEN
       </button>
 
@@ -162,17 +208,22 @@
 
         <h2>KYVORA Analysis</h2>
 
-        <div class="score">
-          DEMO
+        <div class="score" id="score">
+          —
         </div>
 
-        <p>
-          Scanner interface is ready.
-        </p>
+        <div class="level" id="level">
+          —
+        </div>
 
-        <p class="note">
-          This is an early prototype. Live blockchain analysis will be connected
-          in the next development stage.
+        <div class="token-info" id="tokenInfo">
+        </div>
+
+        <div class="signals" id="signals">
+        </div>
+
+        <p class="note" id="note">
+          Analysis powered by KYVORA and Helius data.
         </p>
 
       </div>
@@ -186,10 +237,16 @@
   </div>
 
   <script>
-    function scanToken() {
+    async function scanToken() {
 
       const address = document.getElementById("tokenAddress").value.trim();
       const result = document.getElementById("result");
+      const score = document.getElementById("score");
+      const level = document.getElementById("level");
+      const tokenInfo = document.getElementById("tokenInfo");
+      const signals = document.getElementById("signals");
+      const note = document.getElementById("note");
+      const button = document.getElementById("scanButton");
 
       if (!address) {
         alert("Please enter a Solana token address.");
@@ -197,6 +254,85 @@
       }
 
       result.style.display = "block";
+      button.disabled = true;
+      button.textContent = "ANALYZING...";
+      score.textContent = "—";
+      level.textContent = "Checking token...";
+      tokenInfo.innerHTML = "";
+      signals.innerHTML = "";
+      note.textContent = "";
+
+      try {
+
+        const response = await fetch("/.netlify/functions/scan", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            address: address
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Unable to analyze token.");
+        }
+
+        score.textContent = data.risk.score + " / 100";
+        level.textContent = "Risk Level: " + data.risk.level;
+
+        tokenInfo.innerHTML = `
+          <strong>Name:</strong> ${escapeHtml(data.token.name)}<br>
+          <strong>Symbol:</strong> ${escapeHtml(data.token.symbol)}<br>
+          <strong>Decimals:</strong> ${data.token.decimals}<br>
+          <strong>Supply:</strong> ${data.token.supply}
+        `;
+
+        data.risk.signals.forEach(signal => {
+
+          const div = document.createElement("div");
+          div.className = "signal";
+
+          div.innerHTML = `
+            <div class="signal-title">
+              ${escapeHtml(signal.level)} — ${escapeHtml(signal.title)}
+            </div>
+            <div class="signal-description">
+              ${escapeHtml(signal.description)}
+            </div>
+          `;
+
+          signals.appendChild(div);
+        });
+
+        note.textContent = "Analysis completed using live token data.";
+
+      } catch (error) {
+
+        score.textContent = "ERROR";
+        level.textContent = "Analysis failed";
+        tokenInfo.innerHTML =
+          '<div class="error">' + escapeHtml(error.message) + "</div>";
+        signals.innerHTML = "";
+        note.textContent = "Please check the token address and try again.";
+
+      } finally {
+
+        button.disabled = false;
+        button.textContent = "SCAN TOKEN";
+
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
   </script>
 
