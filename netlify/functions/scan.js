@@ -7,20 +7,14 @@ exports.handler = async function (event) {
   };
 
   if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers,
-      body: "",
-    };
+    return { statusCode: 204, headers, body: "" };
   }
 
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({
-        error: "Method not allowed",
-      }),
+      body: JSON.stringify({ error: "Method not allowed" }),
     };
   }
 
@@ -32,9 +26,7 @@ exports.handler = async function (event) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({
-          error: "Solana token address is required",
-        }),
+        body: JSON.stringify({ error: "Token address is required" }),
       };
     }
 
@@ -44,9 +36,7 @@ exports.handler = async function (event) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({
-          error: "HELIUS_API_KEY is not configured",
-        }),
+        body: JSON.stringify({ error: "HELIUS_API_KEY is not configured" }),
       };
     }
 
@@ -54,9 +44,7 @@ exports.handler = async function (event) {
       `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: "kyvora",
@@ -90,37 +78,35 @@ exports.handler = async function (event) {
     const name = metadata.name || "Unknown Token";
     const symbol = metadata.symbol || "UNKNOWN";
 
-    const decimals = Number(tokenInfo.decimals || 0);
-    const rawSupply = Number(tokenInfo.supply || 0);
+    const decimals = Number(tokenInfo.decimals ?? 0);
 
-    const supply =
-      decimals > 0
-        ? rawSupply / Math.pow(10, decimals)
-        : rawSupply;
+    // Helius may return supply in different locations/formats.
+    let rawSupply = tokenInfo.supply;
+
+    if (rawSupply === undefined || rawSupply === null) {
+      rawSupply = tokenInfo.total_supply;
+    }
+
+    let supply = null;
+
+    if (rawSupply !== undefined && rawSupply !== null) {
+      const numericSupply = Number(rawSupply);
+
+      if (Number.isFinite(numericSupply)) {
+        supply =
+          decimals > 0
+            ? numericSupply / Math.pow(10, decimals)
+            : numericSupply;
+      }
+    }
 
     const price =
       tokenInfo.price_info?.price_per_token != null
         ? Number(tokenInfo.price_info.price_per_token)
         : null;
 
-    /*
-      KYVORA ADVANCED RISK ENGINE
-
-      Starting score:
-      0 = lower risk
-      100 = higher risk
-
-      Important:
-      This is a risk-indicator score, not a guarantee
-      that a token is safe or malicious.
-    */
-
     let riskScore = 10;
     const signals = [];
-
-    // --------------------------------------------------
-    // 1. Mint authority
-    // --------------------------------------------------
 
     const mintAuthority =
       tokenInfo.mint_authority ||
@@ -134,20 +120,16 @@ exports.handler = async function (event) {
         level: "HIGH",
         title: "Mint authority detected",
         description:
-          "An active mint authority is associated with this token. Additional supply may potentially be created.",
+          "Additional token supply may potentially be created.",
       });
     } else {
       signals.push({
         level: "LOW",
         title: "Mint authority not detected",
         description:
-          "No active mint authority was returned by the available token data.",
+          "No active mint authority was returned.",
       });
     }
-
-    // --------------------------------------------------
-    // 2. Freeze authority
-    // --------------------------------------------------
 
     const freezeAuthority =
       tokenInfo.freeze_authority ||
@@ -161,37 +143,25 @@ exports.handler = async function (event) {
         level: "HIGH",
         title: "Freeze authority detected",
         description:
-          "A freeze authority is associated with this token and may be able to restrict token accounts.",
+          "A freeze authority may be able to restrict token accounts.",
       });
     } else {
       signals.push({
         level: "LOW",
         title: "No freeze authority detected",
         description:
-          "No active freeze authority was returned by the available token data.",
+          "No active freeze authority was returned.",
       });
     }
 
-    // --------------------------------------------------
-    // 3. Metadata quality
-    // --------------------------------------------------
-
-    const hasName =
-      typeof metadata.name === "string" &&
-      metadata.name.trim().length > 0;
-
-    const hasSymbol =
-      typeof metadata.symbol === "string" &&
-      metadata.symbol.trim().length > 0;
-
-    if (!hasName || !hasSymbol) {
+    if (!name || !symbol) {
       riskScore += 10;
 
       signals.push({
         level: "MEDIUM",
         title: "Incomplete token metadata",
         description:
-          "The token is missing a name or symbol in the returned metadata.",
+          "Token name or symbol information is incomplete.",
       });
     } else {
       signals.push({
@@ -202,31 +172,23 @@ exports.handler = async function (event) {
       });
     }
 
-    // --------------------------------------------------
-    // 4. Supply
-    // --------------------------------------------------
-
-    if (!Number.isFinite(supply) || supply <= 0) {
+    if (supply === null) {
       riskScore += 10;
 
       signals.push({
         level: "MEDIUM",
         title: "Supply information unavailable",
         description:
-          "A valid circulating token supply was not returned.",
+          "A valid token supply was not returned by the data provider.",
       });
     } else {
       signals.push({
         level: "LOW",
         title: "Supply information available",
         description:
-          "The token supply and decimals were returned successfully.",
+          "Token supply and decimals were successfully retrieved.",
       });
     }
-
-    // --------------------------------------------------
-    // 5. Price availability
-    // --------------------------------------------------
 
     if (price === null || !Number.isFinite(price)) {
       riskScore += 10;
@@ -235,24 +197,20 @@ exports.handler = async function (event) {
         level: "MEDIUM",
         title: "Market price unavailable",
         description:
-          "Helius did not return a current token price for this asset.",
+          "No current indexed token price was returned.",
       });
     } else {
       signals.push({
         level: "LOW",
         title: "Market price available",
-        description:
-          `Current indexed price: $${price}`,
+        description: `Indexed price: $${price}`,
       });
     }
-
-    // --------------------------------------------------
-    // 6. Token program
-    // --------------------------------------------------
 
     const tokenProgram =
       tokenInfo.token_program ||
       tokenInfo.program ||
+      asset.interface ||
       null;
 
     if (tokenProgram) {
@@ -260,13 +218,9 @@ exports.handler = async function (event) {
         level: "LOW",
         title: "Token program identified",
         description:
-          "The token program information was returned successfully.",
+          "The token program was successfully identified.",
       });
     }
-
-    // --------------------------------------------------
-    // Final score
-    // --------------------------------------------------
 
     riskScore = Math.max(0, Math.min(100, riskScore));
 
@@ -288,7 +242,7 @@ exports.handler = async function (event) {
 
         scanner: {
           name: "KYVORA",
-          version: "2.0",
+          version: "2.1",
         },
 
         token: {
@@ -308,7 +262,7 @@ exports.handler = async function (event) {
         },
 
         disclaimer:
-          "KYVORA provides risk indicators for research purposes and does not guarantee that a token is safe or malicious.",
+          "KYVORA provides risk indicators for research purposes. It does not guarantee that a token is safe or malicious.",
 
         source: "Helius",
       }),
