@@ -30,104 +30,190 @@ exports.handler = async function (event) {
     const address = String(body.address || "").trim();
 
     if (!address) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: "Solana token address is required."
-        })
-      };
+      return response(400, {
+        success: false,
+        error: "Solana token address is required."
+      });
     }
 
     const apiKey = process.env.HELIUS_API_KEY;
 
     if (!apiKey) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: "Helius API key is not configured."
-        })
-      };
+      return response(500, {
+        success: false,
+        error: "HELIUS_API_KEY is missing in Netlify environment variables."
+      });
     }
 
     const rpcUrl =
-      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+      "https://mainnet.helius-rpc.com/?api-key=" +
+      encodeURIComponent(apiKey);
 
     async function rpc(method, params) {
-      const response = await fetch(rpcUrl, {
+      const res = await fetch(rpcUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
-          id: "kyvora",
+          id: 1,
           method,
           params
         })
       });
 
-      const data = await response.json();
+      const json = await res.json();
 
-      if (!response.ok || data.error) {
+      if (!res.ok) {
         throw new Error(
-          data.error?.message ||
-          `Helius ${method} request failed.`
+          "Helius HTTP " + res.status
         );
       }
 
-      return data.result;
+      if (json.error) {
+        throw new Error(
+          json.error.message || "Helius RPC error"
+        );
+      }
+
+      return json.result;
     }
 
     // =====================================================
-    // 1. TOKEN METADATA / PRICE / PROGRAM
+    // TOKEN DATA
     // =====================================================
 
-    const asset = await rpc("getAsset", {
-      id: address,
-      displayOptions: {
-        showFungible: true
-      }
-    });
+    let asset = null;
+    let tokenInfo = {};
+    let metadata = {};
+
+    try {
+      asset = await rpc("getAsset", {
+        id: address,
+        displayOptions: {
+          showFungible: true
+        }
+      });
+
+      tokenInfo = asset?.token_info || {};
+      metadata = asset?.content?.metadata || {};
+    } catch (e) {
+      throw new Error(
+        "Unable to read token data from Helius: " +
+        e.message
+      );
+    }
 
     if (!asset) {
-      throw new Error("Token was not found.");
+      throw new Error("Token not found.");
     }
-
-    const tokenInfo = asset.token_info || {};
-    const metadata = asset.content?.metadata || {};
 
     const name =
       metadata.name ||
+      asset?.content?.metadata?.name ||
       "Unknown Token";
 
     const symbol =
       metadata.symbol ||
+      asset?.content?.metadata?.symbol ||
       "UNKNOWN";
 
-    const decimals =
-      Number(tokenInfo.decimals ?? 0);
-
-    const priceValue =
-      tokenInfo.price_info?.price_per_token;
-
-    const price =
-      priceValue !== undefined &&
-      priceValue !== null &&
-      Number.isFinite(Number(priceValue))
-        ? Number(priceValue)
+    const decimalsFromAsset =
+      Number.isFinite(Number(tokenInfo.decimals))
+        ? Number(tokenInfo.decimals)
         : null;
 
-    const tokenProgram =
-      tokenInfo.token_program ||
-      tokenInfo.program ||
-      "Unknown";
+    // =====================================================
+    // TOKEN SUPPLY
+    // =====================================================
+
+    let supply = null;
+    let rawSupply = null;
+    let supplyDecimals = decimalsFromAsset;
+
+    try {
+      const supplyResult =
+        await rpc("getTokenSupply", [address]);
+
+      const value =
+        supplyResult?.value || {};
+
+      rawSupply =
+        value.amount != null
+          ? String(value.amount)
+          : null;
+
+      if (value.decimals != null) {
+        supplyDecimals =
+          Number(value.decimals);
+      }
+
+      /*
+       * uiAmountString is the safest display value
+       * supplied by Solana RPC.
+       */
+      if (
+        value.uiAmountString != null &&
+        value.uiAmountString !== ""
+      ) {
+        supply =
+          Number(value.uiAmountString);
+      } else if (
+        rawSupply !== null &&
+        supplyDecimals !== null
+      ) {
+        supply =
+          rawToNumber(
+            rawSupply,
+            supplyDecimals
+          );
+      }
+    } catch (e) {
+      /*
+       * Do not kill the scanner if this endpoint fails.
+       * Try supply information from getAsset.
+       */
+      if (
+        tokenInfo.supply != null &&
+        tokenInfo.supply !== ""
+      ) {
+        supply =
+          Number(tokenInfo.supply);
+      }
+    }
+
+    // Final fallback from asset token_info.
+    if (
+      supply === null &&
+      tokenInfo.supply != null
+    ) {
+      const assetSupply =
+        Number(tokenInfo.supply);
+
+      if (Number.isFinite(assetSupply)) {
+        supply = assetSupply;
+      }
+    }
 
     // =====================================================
-    // 2. AUTHORITIES
+    // PRICE
+    // =====================================================
+
+    let price = null;
+
+    const assetPrice =
+      tokenInfo?.price_info?.price_per_token;
+
+    if (
+      assetPrice != null &&
+      Number.isFinite(Number(assetPrice))
+    ) {
+      price = Number(assetPrice);
+    }
+
+    // =====================================================
+    // AUTHORITIES
     // =====================================================
 
     const mintAuthority =
@@ -141,225 +227,154 @@ exports.handler = async function (event) {
       null;
 
     // =====================================================
-    // 3. TRUE ON-CHAIN SUPPLY
-    //
-    // IMPORTANT:
-    // Use getTokenSupply instead of relying on Number()
-    // conversion of a potentially huge raw integer.
+    // TOKEN PROGRAM
     // =====================================================
 
-    const supplyResult =
-      await rpc("getTokenSupply", [
-        address
-      ]);
-
-    const supplyValue =
-      supplyResult?.value || {};
-
-    const rawSupplyString =
-      String(supplyValue.amount || "0");
-
-    const supplyDecimals =
-      Number(
-        supplyValue.decimals ??
-        decimals
-      );
-
-    let supply = null;
-
-    try {
-      const rawSupply =
-        BigInt(rawSupplyString);
-
-      const divisor =
-        10n ** BigInt(supplyDecimals);
-
-      const whole =
-        rawSupply / divisor;
-
-      const fraction =
-        rawSupply % divisor;
-
-      if (fraction === 0n) {
-        supply = Number(whole);
-      } else {
-        const fractionText =
-          fraction
-            .toString()
-            .padStart(
-              supplyDecimals,
-              "0"
-            )
-            .replace(/0+$/, "");
-
-        supply =
-          Number(
-            `${whole.toString()}.${fractionText}`
-          );
-      }
-
-    } catch (error) {
-      supply = null;
-    }
+    const tokenProgram =
+      tokenInfo.token_program ||
+      tokenInfo.program ||
+      asset.owner ||
+      "Unknown";
 
     // =====================================================
-    // 4. HOLDER ANALYSIS
-    //
-    // Fetch token accounts page by page.
-    // Aggregate balances by wallet owner.
-    // Keep balances as BigInt to avoid precision loss.
+    // HOLDER ANALYSIS
     // =====================================================
 
     const owners = new Map();
 
     let page = 1;
-    let totalAccountsAnalyzed = 0;
+    let analyzedAccounts = 0;
+
     const MAX_PAGES = 100;
+    const PAGE_SIZE = 1000;
+
+    let holderScanError = null;
 
     while (page <= MAX_PAGES) {
+      try {
+        const holderResult =
+          await rpc("getTokenAccounts", {
+            mint: address,
+            page: page,
+            limit: PAGE_SIZE
+          });
 
-      const holderResult =
-        await rpc("getTokenAccounts", {
-          mint: address,
-          page,
-          limit: 1000
-        });
+        const accounts =
+          holderResult?.token_accounts || [];
 
-      const accounts =
-        holderResult?.token_accounts || [];
+        if (!Array.isArray(accounts) ||
+            accounts.length === 0) {
+          break;
+        }
 
-      if (!accounts.length) {
+        for (const account of accounts) {
+          const owner =
+            account?.owner;
+
+          if (!owner) {
+            continue;
+          }
+
+          let rawAmount = 0n;
+
+          try {
+            rawAmount =
+              BigInt(
+                String(
+                  account.amount ?? "0"
+                )
+              );
+          } catch {
+            rawAmount = 0n;
+          }
+
+          if (rawAmount <= 0n) {
+            continue;
+          }
+
+          analyzedAccounts++;
+
+          const oldAmount =
+            owners.get(owner) || 0n;
+
+          owners.set(
+            owner,
+            oldAmount + rawAmount
+          );
+        }
+
+        if (accounts.length < PAGE_SIZE) {
+          break;
+        }
+
+        page++;
+      } catch (e) {
+        holderScanError = e.message;
         break;
       }
-
-      for (const account of accounts) {
-
-        const owner =
-          account.owner;
-
-        if (!owner) {
-          continue;
-        }
-
-        let rawAmount;
-
-        try {
-          rawAmount =
-            BigInt(
-              String(
-                account.amount || "0"
-              )
-            );
-        } catch {
-          rawAmount = 0n;
-        }
-
-        // Ignore empty token accounts.
-        if (rawAmount <= 0n) {
-          continue;
-        }
-
-        totalAccountsAnalyzed++;
-
-        const previous =
-          owners.get(owner) || 0n;
-
-        owners.set(
-          owner,
-          previous + rawAmount
-        );
-      }
-
-      if (accounts.length < 1000) {
-        break;
-      }
-
-      page++;
     }
 
     const holderCount =
       owners.size;
 
     // =====================================================
-    // 5. TOP HOLDER CONCENTRATION
-    //
-    // Compare raw top-holder balance directly against
-    // raw total supply. No floating-point conversion.
+    // TOP HOLDER
     // =====================================================
+
+    let topHolderRaw = 0n;
+    let topHolderOwner = null;
+
+    for (const [owner, amount] of owners.entries()) {
+      if (amount > topHolderRaw) {
+        topHolderRaw = amount;
+        topHolderOwner = owner;
+      }
+    }
 
     let topHolderPercent = null;
     let topHolderAmount = null;
 
-    let topHolderRaw = 0n;
+    /*
+     * IMPORTANT:
+     * Calculate concentration using raw integer amounts.
+     * No floating-point division here.
+     */
+    if (
+      rawSupply !== null &&
+      topHolderRaw > 0n
+    ) {
+      try {
+        const rawSupplyBig =
+          BigInt(rawSupply);
 
-    for (const amount of owners.values()) {
-      if (amount > topHolderRaw) {
-        topHolderRaw = amount;
-      }
-    }
-
-    try {
-
-      const rawSupply =
-        BigInt(rawSupplyString);
-
-      if (
-        rawSupply > 0n &&
-        topHolderRaw > 0n
-      ) {
-
-        /*
-          Calculate percentage using integer arithmetic.
-          Multiply by 10,000,000 to retain precision,
-          then divide by supply.
-        */
-
-        const scaled =
-          (topHolderRaw * 10000000n) /
-          rawSupply;
-
-        topHolderPercent =
-          Number(scaled) / 100000;
-
-        const divisor =
-          10n ** BigInt(supplyDecimals);
-
-        const whole =
-          topHolderRaw / divisor;
-
-        const fraction =
-          topHolderRaw % divisor;
-
-        if (fraction === 0n) {
-
-          topHolderAmount =
-            Number(whole);
-
-        } else {
-
-          const fractionText =
-            fraction
-              .toString()
-              .padStart(
-                supplyDecimals,
-                "0"
-              )
-              .replace(/0+$/, "");
-
-          topHolderAmount =
+        if (rawSupplyBig > 0n) {
+          topHolderPercent =
             Number(
-              `${whole.toString()}.${fractionText}`
-            );
-        }
-      }
+              (topHolderRaw * 1000000n) /
+              rawSupplyBig
+            ) / 10000;
 
-    } catch {
-      topHolderPercent = null;
-      topHolderAmount = null;
+          if (
+            supplyDecimals !== null &&
+            Number.isInteger(supplyDecimals) &&
+            supplyDecimals >= 0 &&
+            supplyDecimals <= 18
+          ) {
+            topHolderAmount =
+              rawToNumber(
+                topHolderRaw.toString(),
+                supplyDecimals
+              );
+          }
+        }
+      } catch {
+        topHolderPercent = null;
+        topHolderAmount = null;
+      }
     }
 
     // =====================================================
-    // 6. RISK ENGINE
+    // RISK ENGINE
     // =====================================================
 
     let score = 10;
@@ -368,7 +383,6 @@ exports.handler = async function (event) {
 
     // Mint authority
     if (mintAuthority) {
-
       score += 25;
 
       signals.push({
@@ -377,9 +391,7 @@ exports.handler = async function (event) {
         description:
           "An active mint authority was detected and may be able to increase token supply."
       });
-
     } else {
-
       signals.push({
         level: "LOW",
         title: "Mint authority not detected",
@@ -390,7 +402,6 @@ exports.handler = async function (event) {
 
     // Freeze authority
     if (freezeAuthority) {
-
       score += 20;
 
       signals.push({
@@ -399,9 +410,7 @@ exports.handler = async function (event) {
         description:
           "An active freeze authority may be able to restrict token accounts."
       });
-
     } else {
-
       signals.push({
         level: "LOW",
         title: "No freeze authority detected",
@@ -415,16 +424,13 @@ exports.handler = async function (event) {
       name !== "Unknown Token" &&
       symbol !== "UNKNOWN"
     ) {
-
       signals.push({
         level: "LOW",
         title: "Token metadata available",
         description:
           "Token name and symbol were successfully retrieved."
       });
-
     } else {
-
       score += 10;
 
       signals.push({
@@ -440,16 +446,16 @@ exports.handler = async function (event) {
       supply !== null &&
       Number.isFinite(supply)
     ) {
-
       signals.push({
         level: "LOW",
         title: "Supply information available",
         description:
-          `Total on-chain supply: ${formatNumber(supply)} ${symbol}`
+          "Total on-chain supply: " +
+          formatNumber(supply) +
+          " " +
+          symbol
       });
-
     } else {
-
       score += 10;
 
       signals.push({
@@ -462,16 +468,14 @@ exports.handler = async function (event) {
 
     // Price
     if (price !== null) {
-
       signals.push({
         level: "LOW",
         title: "Market price available",
         description:
-          `Indexed price: $${price}`
+          "Indexed price: $" +
+          formatPrice(price)
       });
-
     } else {
-
       score += 10;
 
       signals.push({
@@ -482,25 +486,27 @@ exports.handler = async function (event) {
       });
     }
 
-    // Holder count
+    // Holder distribution
     if (holderCount > 0) {
-
       signals.push({
         level: "LOW",
         title: "Holder distribution analyzed",
         description:
-          `${holderCount.toLocaleString()} unique holders detected across ${totalAccountsAnalyzed.toLocaleString()} non-zero token accounts analyzed.`
+          holderCount.toLocaleString() +
+          " unique holders detected across " +
+          analyzedAccounts.toLocaleString() +
+          " non-zero token accounts in the analyzed snapshot."
       });
-
     } else {
-
       score += 5;
 
       signals.push({
         level: "MEDIUM",
         title: "Holder distribution unavailable",
         description:
-          "No non-zero token holders were returned."
+          holderScanError
+            ? "Holder data could not be retrieved from Helius."
+            : "No non-zero token holders were returned."
       });
     }
 
@@ -509,57 +515,55 @@ exports.handler = async function (event) {
       topHolderPercent !== null &&
       Number.isFinite(topHolderPercent)
     ) {
-
       if (topHolderPercent >= 50) {
-
         score += 30;
 
         signals.push({
           level: "CRITICAL",
           title: "Very high holder concentration",
           description:
-            `The largest detected holder controls approximately ${topHolderPercent.toFixed(2)}% of total supply.`
+            "The largest detected holder controls approximately " +
+            topHolderPercent.toFixed(2) +
+            "% of total supply."
         });
-
       } else if (topHolderPercent >= 25) {
-
         score += 20;
 
         signals.push({
           level: "HIGH",
           title: "High holder concentration",
           description:
-            `The largest detected holder controls approximately ${topHolderPercent.toFixed(2)}% of total supply.`
+            "The largest detected holder controls approximately " +
+            topHolderPercent.toFixed(2) +
+            "% of total supply."
         });
-
       } else if (topHolderPercent >= 10) {
-
         score += 10;
 
         signals.push({
           level: "MEDIUM",
           title: "Moderate holder concentration",
           description:
-            `The largest detected holder controls approximately ${topHolderPercent.toFixed(2)}% of total supply.`
+            "The largest detected holder controls approximately " +
+            topHolderPercent.toFixed(2) +
+            "% of total supply."
         });
-
       } else {
-
         signals.push({
           level: "LOW",
           title: "Low top-holder concentration",
           description:
-            `The largest detected holder controls approximately ${topHolderPercent.toFixed(2)}% of total supply.`
+            "The largest detected holder controls approximately " +
+            topHolderPercent.toFixed(2) +
+            "% of total supply."
         });
       }
-
     } else {
-
       signals.push({
         level: "INFO",
         title: "Holder concentration unavailable",
         description:
-          "A reliable top-holder percentage could not be calculated."
+          "A reliable top-holder percentage could not be calculated from the available holder snapshot."
       });
     }
 
@@ -568,7 +572,8 @@ exports.handler = async function (event) {
       level: "LOW",
       title: "Token program identified",
       description:
-        `Token program: ${tokenProgram}`
+        "Token program: " +
+        tokenProgram
     });
 
     score =
@@ -591,82 +596,139 @@ exports.handler = async function (event) {
     }
 
     // =====================================================
-    // 7. RESPONSE
+    // FINAL RESPONSE
     // =====================================================
 
-    return {
-      statusCode: 200,
-      headers,
+    return response(200, {
+      success: true,
 
-      body: JSON.stringify({
+      scanner: {
+        name: "KYVORA",
+        version: "FINAL"
+      },
 
-        success: true,
+      token: {
+        address: address,
+        name: name,
+        symbol: symbol,
+        decimals:
+          supplyDecimals ??
+          decimalsFromAsset ??
+          0,
+        supply: supply,
+        rawSupply: rawSupply,
+        price: price,
+        tokenProgram: tokenProgram
+      },
 
-        scanner: {
-          name: "KYVORA",
-          version: "4.1"
-        },
-
-        token: {
-          address,
-          name,
-          symbol,
-          decimals: supplyDecimals,
-          supply,
-          rawSupply: rawSupplyString,
-          price,
-          tokenProgram
-        },
-
-        holders: {
-          holderCount,
+      holders: {
+        holderCount: holderCount,
+        topHolderPercent:
           topHolderPercent,
+        topHolderAmount:
           topHolderAmount,
-          analyzedAccounts: totalAccountsAnalyzed
-        },
+        topHolderOwner:
+          topHolderOwner,
+        analyzedAccounts:
+          analyzedAccounts
+      },
 
-        risk: {
-          score,
-          level,
-          signals
-        },
+      risk: {
+        score: score,
+        level: level,
+        signals: signals
+      },
 
-        disclaimer:
-          "KYVORA provides risk indicators for research purposes only and does not guarantee that a token is safe or malicious.",
+      disclaimer:
+        "KYVORA provides risk indicators for research purposes only and does not guarantee that a token is safe or malicious.",
 
-        source:
-          "Helius"
-      })
-    };
+      source: "Helius"
+    });
 
   } catch (error) {
-
     console.error(
       "KYVORA scanner error:",
       error
     );
 
-    return {
-      statusCode: 500,
-      headers,
-
-      body: JSON.stringify({
-        success: false,
-        error:
-          error.message ||
-          "Unable to analyze token."
-      })
-    };
+    return response(500, {
+      success: false,
+      error:
+        error.message ||
+        "Unable to analyze token."
+    });
   }
 };
 
 
 // =========================================================
-// NUMBER FORMATTER
+// RESPONSE HELPER
+// =========================================================
+
+function response(statusCode, data) {
+  return {
+    statusCode: statusCode,
+
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS"
+    },
+
+    body: JSON.stringify(data)
+  };
+}
+
+
+// =========================================================
+// RAW INTEGER → DECIMAL NUMBER
+// =========================================================
+
+function rawToNumber(raw, decimals) {
+  try {
+    const value = BigInt(String(raw));
+    const d = Number(decimals);
+
+    if (!Number.isInteger(d) || d < 0 || d > 18) {
+      return null;
+    }
+
+    if (d === 0) {
+      return Number(value);
+    }
+
+    const divisor = 10n ** BigInt(d);
+
+    const whole = value / divisor;
+    const fraction = value % divisor;
+
+    if (fraction === 0n) {
+      return Number(whole);
+    }
+
+    const fractionText =
+      fraction
+        .toString()
+        .padStart(d, "0")
+        .replace(/0+$/, "");
+
+    return Number(
+      whole.toString() +
+      "." +
+      fractionText
+    );
+  } catch {
+    return null;
+  }
+}
+
+
+// =========================================================
+// DISPLAY HELPERS
 // =========================================================
 
 function formatNumber(value) {
-
   if (
     value === null ||
     value === undefined ||
@@ -675,11 +737,33 @@ function formatNumber(value) {
     return "Unavailable";
   }
 
-  return Number(value)
-    .toLocaleString(
-      "en-US",
-      {
-        maximumFractionDigits: 6
-      }
-    );
+  return Number(value).toLocaleString(
+    "en-US",
+    {
+      maximumFractionDigits: 6
+    }
+  );
+}
+
+
+function formatPrice(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    !Number.isFinite(Number(value))
+  ) {
+    return "Unavailable";
+  }
+
+  const number = Number(value);
+
+  if (number < 0.000001) {
+    return number.toFixed(10);
+  }
+
+  if (number < 1) {
+    return number.toFixed(6);
+  }
+
+  return number.toFixed(4);
 }
