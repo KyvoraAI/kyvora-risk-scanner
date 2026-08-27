@@ -7,14 +7,20 @@ exports.handler = async function (event) {
   };
 
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers, body: "" };
+    return {
+      statusCode: 204,
+      headers,
+      body: "",
+    };
   }
 
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({ error: "Method not allowed" }),
+      body: JSON.stringify({
+        error: "Method not allowed",
+      }),
     };
   }
 
@@ -26,7 +32,9 @@ exports.handler = async function (event) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: "Solana token address is required" }),
+        body: JSON.stringify({
+          error: "Solana token address is required",
+        }),
       };
     }
 
@@ -36,12 +44,13 @@ exports.handler = async function (event) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: "HELIUS_API_KEY is not configured" }),
+        body: JSON.stringify({
+          error: "HELIUS_API_KEY is not configured",
+        }),
       };
     }
 
-    // Get token information from Helius DAS API
-    const assetResponse = await fetch(
+    const response = await fetch(
       `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
       {
         method: "POST",
@@ -54,14 +63,17 @@ exports.handler = async function (event) {
           method: "getAsset",
           params: {
             id: address,
+            displayOptions: {
+              showFungible: true,
+            },
           },
         }),
       }
     );
 
-    const assetJson = await assetResponse.json();
+    const json = await response.json();
 
-    if (assetJson.error || !assetJson.result) {
+    if (!response.ok || json.error || !json.result) {
       return {
         statusCode: 400,
         headers,
@@ -71,90 +83,192 @@ exports.handler = async function (event) {
       };
     }
 
-    const asset = assetJson.result;
+    const asset = json.result;
     const tokenInfo = asset.token_info || {};
-    const authorities = asset.authorities || [];
+    const metadata = asset.content?.metadata || {};
+
+    const name = metadata.name || "Unknown Token";
+    const symbol = metadata.symbol || "UNKNOWN";
 
     const decimals = Number(tokenInfo.decimals || 0);
     const rawSupply = Number(tokenInfo.supply || 0);
+
     const supply =
-      decimals > 0 ? rawSupply / Math.pow(10, decimals) : rawSupply;
+      decimals > 0
+        ? rawSupply / Math.pow(10, decimals)
+        : rawSupply;
 
-    const mintAuthority = authorities.find(
-      (a) => a.address && a.address === address
-    );
+    const price =
+      tokenInfo.price_info?.price_per_token != null
+        ? Number(tokenInfo.price_info.price_per_token)
+        : null;
 
-    const freezeAuthority = tokenInfo.freeze_authority || null;
+    /*
+      KYVORA ADVANCED RISK ENGINE
 
+      Starting score:
+      0 = lower risk
+      100 = higher risk
+
+      Important:
+      This is a risk-indicator score, not a guarantee
+      that a token is safe or malicious.
+    */
+
+    let riskScore = 10;
     const signals = [];
-    let riskScore = 20;
 
-    // Mint authority
+    // --------------------------------------------------
+    // 1. Mint authority
+    // --------------------------------------------------
+
+    const mintAuthority =
+      tokenInfo.mint_authority ||
+      asset.mint_authority ||
+      null;
+
     if (mintAuthority) {
-      riskScore += 20;
+      riskScore += 25;
+
       signals.push({
         level: "HIGH",
         title: "Mint authority detected",
         description:
-          "The token may have an active authority capable of changing token supply.",
+          "An active mint authority is associated with this token. Additional supply may potentially be created.",
       });
     } else {
       signals.push({
         level: "LOW",
         title: "Mint authority not detected",
         description:
-          "No matching mint authority was detected in the returned token data.",
+          "No active mint authority was returned by the available token data.",
       });
     }
 
-    // Freeze authority
+    // --------------------------------------------------
+    // 2. Freeze authority
+    // --------------------------------------------------
+
+    const freezeAuthority =
+      tokenInfo.freeze_authority ||
+      asset.freeze_authority ||
+      null;
+
     if (freezeAuthority) {
       riskScore += 20;
+
       signals.push({
         level: "HIGH",
         title: "Freeze authority detected",
         description:
-          "The token has a freeze authority recorded in its token information.",
+          "A freeze authority is associated with this token and may be able to restrict token accounts.",
       });
     } else {
       signals.push({
         level: "LOW",
         title: "No freeze authority detected",
         description:
-          "No freeze authority was returned by the token data.",
+          "No active freeze authority was returned by the available token data.",
       });
     }
 
-    // Metadata
-    const name = asset.content?.metadata?.name || "Unknown Token";
-    const symbol = asset.content?.metadata?.symbol || "UNKNOWN";
+    // --------------------------------------------------
+    // 3. Metadata quality
+    // --------------------------------------------------
 
-    if (!asset.content?.metadata?.name || !asset.content?.metadata?.symbol) {
+    const hasName =
+      typeof metadata.name === "string" &&
+      metadata.name.trim().length > 0;
+
+    const hasSymbol =
+      typeof metadata.symbol === "string" &&
+      metadata.symbol.trim().length > 0;
+
+    if (!hasName || !hasSymbol) {
       riskScore += 10;
+
       signals.push({
         level: "MEDIUM",
-        title: "Incomplete metadata",
-        description: "Token name or symbol information is missing.",
+        title: "Incomplete token metadata",
+        description:
+          "The token is missing a name or symbol in the returned metadata.",
       });
     } else {
       signals.push({
         level: "LOW",
-        title: "Metadata available",
-        description: "Token name and symbol were returned successfully.",
+        title: "Token metadata available",
+        description:
+          "Token name and symbol were successfully returned.",
       });
     }
 
-    // Supply sanity check
-    if (!supply || supply <= 0) {
+    // --------------------------------------------------
+    // 4. Supply
+    // --------------------------------------------------
+
+    if (!Number.isFinite(supply) || supply <= 0) {
       riskScore += 10;
+
       signals.push({
         level: "MEDIUM",
         title: "Supply information unavailable",
-        description: "A valid token supply was not returned.",
+        description:
+          "A valid circulating token supply was not returned.",
+      });
+    } else {
+      signals.push({
+        level: "LOW",
+        title: "Supply information available",
+        description:
+          "The token supply and decimals were returned successfully.",
       });
     }
 
-    riskScore = Math.min(100, Math.max(0, riskScore));
+    // --------------------------------------------------
+    // 5. Price availability
+    // --------------------------------------------------
+
+    if (price === null || !Number.isFinite(price)) {
+      riskScore += 10;
+
+      signals.push({
+        level: "MEDIUM",
+        title: "Market price unavailable",
+        description:
+          "Helius did not return a current token price for this asset.",
+      });
+    } else {
+      signals.push({
+        level: "LOW",
+        title: "Market price available",
+        description:
+          `Current indexed price: $${price}`,
+      });
+    }
+
+    // --------------------------------------------------
+    // 6. Token program
+    // --------------------------------------------------
+
+    const tokenProgram =
+      tokenInfo.token_program ||
+      tokenInfo.program ||
+      null;
+
+    if (tokenProgram) {
+      signals.push({
+        level: "LOW",
+        title: "Token program identified",
+        description:
+          "The token program information was returned successfully.",
+      });
+    }
+
+    // --------------------------------------------------
+    // Final score
+    // --------------------------------------------------
+
+    riskScore = Math.max(0, Math.min(100, riskScore));
 
     let riskLevel = "LOW";
 
@@ -171,19 +285,31 @@ exports.handler = async function (event) {
       headers,
       body: JSON.stringify({
         success: true,
-        scanner: "KYVORA",
+
+        scanner: {
+          name: "KYVORA",
+          version: "2.0",
+        },
+
         token: {
           address,
           name,
           symbol,
           decimals,
           supply,
+          price,
+          tokenProgram,
         },
+
         risk: {
           score: riskScore,
           level: riskLevel,
           signals,
         },
+
+        disclaimer:
+          "KYVORA provides risk indicators for research purposes and does not guarantee that a token is safe or malicious.",
+
         source: "Helius",
       }),
     };
