@@ -1,769 +1,872 @@
-exports.handler = async function (event) {
-  const headers = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS"
-  };
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#05070b">
 
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers,
-      body: ""
-    };
-  }
+  <title>KYVORA — Crypto Risk Intelligence</title>
 
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        error: "Method not allowed"
-      })
-    };
-  }
-
-  try {
-    const body = JSON.parse(event.body || "{}");
-    const address = String(body.address || "").trim();
-
-    if (!address) {
-      return response(400, {
-        success: false,
-        error: "Solana token address is required."
-      });
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
-    const apiKey = process.env.HELIUS_API_KEY;
-
-    if (!apiKey) {
-      return response(500, {
-        success: false,
-        error: "HELIUS_API_KEY is missing in Netlify environment variables."
-      });
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 50% -10%, #172033 0%, #05070b 48%);
+      color: #ffffff;
+      font-family: Arial, Helvetica, sans-serif;
+      padding: 28px 16px 40px;
     }
 
-    const rpcUrl =
-      "https://mainnet.helius-rpc.com/?api-key=" +
-      encodeURIComponent(apiKey);
+    .container {
+      width: 100%;
+      max-width: 820px;
+      margin: 0 auto;
+    }
 
-    async function rpc(method, params) {
-      const res = await fetch(rpcUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method,
-          params
-        })
-      });
+    .brand {
+      text-align: center;
+      margin-bottom: 30px;
+    }
 
-      const json = await res.json();
+    .logo {
+      color: #f4c84a;
+      font-size: 40px;
+      font-weight: 900;
+      letter-spacing: 9px;
+    }
 
-      if (!res.ok) {
-        throw new Error(
-          "Helius HTTP " + res.status
-        );
+    .tagline {
+      color: #7f899b;
+      font-size: 11px;
+      letter-spacing: 2.5px;
+      margin-top: 8px;
+    }
+
+    .scanner {
+      background: rgba(11, 15, 23, .96);
+      border: 1px solid #202938;
+      border-radius: 22px;
+      padding: 28px;
+      box-shadow: 0 25px 80px rgba(0, 0, 0, .38);
+    }
+
+    .eyebrow {
+      color: #f4c84a;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      margin-bottom: 9px;
+    }
+
+    h1 {
+      font-size: 30px;
+      margin-bottom: 9px;
+    }
+
+    .description {
+      color: #929caf;
+      line-height: 1.6;
+      font-size: 14px;
+      margin-bottom: 22px;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    input {
+      width: 100%;
+      padding: 17px 16px;
+      background: #05070b;
+      color: #fff;
+      border: 1px solid #303a4d;
+      border-radius: 12px;
+      outline: none;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    input:focus {
+      border-color: #f4c84a;
+    }
+
+    button {
+      width: 100%;
+      padding: 17px;
+      border: 0;
+      border-radius: 12px;
+      background: #f4c84a;
+      color: #05070b;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .result {
+      display: none;
+      margin-top: 28px;
+    }
+
+    .top-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.5fr;
+      gap: 14px;
+    }
+
+    .panel {
+      background: #080c13;
+      border: 1px solid #263246;
+      border-radius: 17px;
+      padding: 21px;
+    }
+
+    .score-panel {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .label {
+      color: #727d90;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      margin-bottom: 8px;
+    }
+
+    .score {
+      color: #f4c84a;
+      font-size: 48px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .risk-badge {
+      display: inline-block;
+      margin: 13px auto 0;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: #151a24;
+      color: #f4c84a;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 1px;
+    }
+
+    .token-name {
+      font-size: 24px;
+      font-weight: 900;
+      margin-bottom: 3px;
+      word-break: break-word;
+    }
+
+    .token-symbol {
+      color: #f4c84a;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      margin-bottom: 17px;
+    }
+
+    .token-address {
+      color: #657083;
+      font-size: 10px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .details {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .detail {
+      background: #0c111a;
+      border: 1px solid #1e2735;
+      border-radius: 11px;
+      padding: 13px;
+      min-width: 0;
+    }
+
+    .detail-label {
+      color: #687387;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    .detail-value {
+      color: #e8ebf0;
+      font-size: 13px;
+      font-weight: 800;
+      word-break: break-word;
+    }
+
+    .holder-panel {
+      margin-top: 14px;
+    }
+
+    .holder-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .holder-count {
+      color: #f4c84a;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .concentration {
+      background: #0c111a;
+      border: 1px solid #1e2735;
+      border-radius: 12px;
+      padding: 15px;
+    }
+
+    .concentration-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+
+    .concentration-row span:first-child {
+      color: #8d97a8;
+    }
+
+    .concentration-row span:last-child {
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .bar {
+      width: 100%;
+      height: 8px;
+      background: #171d28;
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #f4c84a;
+      border-radius: 20px;
+      transition: width .5s ease;
+    }
+
+    .signals-title {
+      margin: 24px 0 12px;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .signal {
+      background: #080c13;
+      border: 1px solid #263246;
+      border-radius: 13px;
+      padding: 15px;
+      margin-top: 9px;
+    }
+
+    .signal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+
+    .signal-title {
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .signal-level {
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    .signal-description {
+      color: #8b95a7;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .note {
+      color: #657083;
+      text-align: center;
+      font-size: 10px;
+      line-height: 1.6;
+      margin-top: 18px;
+    }
+
+    .error {
+      color: #ff9b9b;
+      text-align: center;
+      padding: 18px;
+      background: #160d0d;
+      border: 1px solid #452222;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+
+    .footer {
+      color: #4f596a;
+      text-align: center;
+      font-size: 10px;
+      margin-top: 22px;
+    }
+
+    @media (max-width: 650px) {
+      body {
+        padding: 20px 12px 30px;
       }
 
-      if (json.error) {
-        throw new Error(
-          json.error.message || "Helius RPC error"
-        );
+      .scanner {
+        padding: 20px;
       }
 
-      return json.result;
-    }
-
-    // =====================================================
-    // TOKEN DATA
-    // =====================================================
-
-    let asset = null;
-    let tokenInfo = {};
-    let metadata = {};
-
-    try {
-      asset = await rpc("getAsset", {
-        id: address,
-        displayOptions: {
-          showFungible: true
-        }
-      });
-
-      tokenInfo = asset?.token_info || {};
-      metadata = asset?.content?.metadata || {};
-    } catch (e) {
-      throw new Error(
-        "Unable to read token data from Helius: " +
-        e.message
-      );
-    }
-
-    if (!asset) {
-      throw new Error("Token not found.");
-    }
-
-    const name =
-      metadata.name ||
-      asset?.content?.metadata?.name ||
-      "Unknown Token";
-
-    const symbol =
-      metadata.symbol ||
-      asset?.content?.metadata?.symbol ||
-      "UNKNOWN";
-
-    const decimalsFromAsset =
-      Number.isFinite(Number(tokenInfo.decimals))
-        ? Number(tokenInfo.decimals)
-        : null;
-
-    // =====================================================
-    // TOKEN SUPPLY
-    // =====================================================
-
-    let supply = null;
-    let rawSupply = null;
-    let supplyDecimals = decimalsFromAsset;
-
-    try {
-      const supplyResult =
-        await rpc("getTokenSupply", [address]);
-
-      const value =
-        supplyResult?.value || {};
-
-      rawSupply =
-        value.amount != null
-          ? String(value.amount)
-          : null;
-
-      if (value.decimals != null) {
-        supplyDecimals =
-          Number(value.decimals);
+      .logo {
+        font-size: 32px;
+        letter-spacing: 7px;
       }
 
-      /*
-       * uiAmountString is the safest display value
-       * supplied by Solana RPC.
-       */
-      if (
-        value.uiAmountString != null &&
-        value.uiAmountString !== ""
-      ) {
-        supply =
-          Number(value.uiAmountString);
-      } else if (
-        rawSupply !== null &&
-        supplyDecimals !== null
-      ) {
-        supply =
-          rawToNumber(
-            rawSupply,
-            supplyDecimals
-          );
+      h1 {
+        font-size: 25px;
       }
-    } catch (e) {
-      /*
-       * Do not kill the scanner if this endpoint fails.
-       * Try supply information from getAsset.
-       */
-      if (
-        tokenInfo.supply != null &&
-        tokenInfo.supply !== ""
-      ) {
-        supply =
-          Number(tokenInfo.supply);
+
+      .top-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .score {
+        font-size: 44px;
       }
     }
 
-    // Final fallback from asset token_info.
-    if (
-      supply === null &&
-      tokenInfo.supply != null
-    ) {
-      const assetSupply =
-        Number(tokenInfo.supply);
+    @media (max-width: 420px) {
+      .details {
+        grid-template-columns: 1fr;
+      }
 
-      if (Number.isFinite(assetSupply)) {
-        supply = assetSupply;
+      .token-name {
+        font-size: 21px;
       }
     }
+  </style>
+</head>
 
-    // =====================================================
-    // PRICE
-    // =====================================================
+<body>
 
-    let price = null;
+  <div class="container">
 
-    const assetPrice =
-      tokenInfo?.price_info?.price_per_token;
+    <div class="brand">
+      <div class="logo">KYVORA</div>
+      <div class="tagline">
+        AI-POWERED CRYPTO RISK INTELLIGENCE
+      </div>
+    </div>
 
-    if (
-      assetPrice != null &&
-      Number.isFinite(Number(assetPrice))
-    ) {
-      price = Number(assetPrice);
-    }
+    <main class="scanner">
 
-    // =====================================================
-    // AUTHORITIES
-    // =====================================================
+      <div class="eyebrow">SOLANA SECURITY INTELLIGENCE</div>
 
-    const mintAuthority =
-      tokenInfo.mint_authority ||
-      asset.mint_authority ||
-      null;
+      <h1>Risk Scanner</h1>
 
-    const freezeAuthority =
-      tokenInfo.freeze_authority ||
-      asset.freeze_authority ||
-      null;
+      <p class="description">
+        Analyze a Solana token and identify on-chain risk indicators,
+        holder concentration and market data.
+      </p>
 
-    // =====================================================
-    // TOKEN PROGRAM
-    // =====================================================
+      <input
+        id="tokenAddress"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Enter Solana token address"
+      >
 
-    const tokenProgram =
-      tokenInfo.token_program ||
-      tokenInfo.program ||
-      asset.owner ||
-      "Unknown";
+      <button id="scanButton" onclick="scanToken()">
+        SCAN TOKEN
+      </button>
 
-    // =====================================================
-    // HOLDER ANALYSIS
-    // =====================================================
+      <section class="result" id="result">
 
-    const owners = new Map();
+        <div class="top-grid">
 
-    let page = 1;
-    let analyzedAccounts = 0;
+          <div class="panel score-panel">
 
-    const MAX_PAGES = 100;
-    const PAGE_SIZE = 1000;
+            <div class="label">
+              KYVORA RISK SCORE
+            </div>
 
-    let holderScanError = null;
+            <div class="score" id="score">
+              —
+            </div>
 
-    while (page <= MAX_PAGES) {
+            <div class="risk-badge" id="riskBadge">
+              —
+            </div>
+
+          </div>
+
+          <div class="panel">
+
+            <div class="token-name" id="tokenName">
+              —
+            </div>
+
+            <div class="token-symbol" id="tokenSymbol">
+              —
+            </div>
+
+            <div class="token-address" id="tokenAddressResult">
+              —
+            </div>
+
+            <div class="details">
+
+              <div class="detail">
+                <div class="detail-label">SUPPLY</div>
+                <div class="detail-value" id="supply">
+                  —
+                </div>
+              </div>
+
+              <div class="detail">
+                <div class="detail-label">DECIMALS</div>
+                <div class="detail-value" id="decimals">
+                  —
+                </div>
+              </div>
+
+              <div class="detail">
+                <div class="detail-label">PRICE</div>
+                <div class="detail-value" id="price">
+                  —
+                </div>
+              </div>
+
+              <div class="detail">
+                <div class="detail-label">PROGRAM</div>
+                <div class="detail-value" id="program">
+                  —
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+        <div class="panel holder-panel">
+
+          <div class="holder-header">
+            <div class="section-title">
+              Holder Distribution
+            </div>
+
+            <div class="holder-count" id="holderCount">
+              —
+            </div>
+          </div>
+
+          <div class="concentration">
+
+            <div class="concentration-row">
+              <span>Top Holder Concentration</span>
+              <span id="topHolderPercent">—</span>
+            </div>
+
+            <div class="bar">
+              <div
+                class="bar-fill"
+                id="holderBar"
+              ></div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <div class="signals-title">
+          Risk Signals
+        </div>
+
+        <div id="signals"></div>
+
+        <p class="note" id="note"></p>
+
+      </section>
+
+    </main>
+
+    <div class="footer">
+      KYVORA • Built for the Solana ecosystem
+    </div>
+
+  </div>
+
+  <script>
+    async function scanToken() {
+
+      const address =
+        document
+          .getElementById("tokenAddress")
+          .value
+          .trim();
+
+      const result =
+        document.getElementById("result");
+
+      const button =
+        document.getElementById("scanButton");
+
+      if (!address) {
+        alert("Please enter a Solana token address.");
+        return;
+      }
+
+      result.style.display = "block";
+
+      button.disabled = true;
+      button.textContent = "ANALYZING...";
+
+      resetResult();
+
       try {
-        const holderResult =
-          await rpc("getTokenAccounts", {
-            mint: address,
-            page: page,
-            limit: PAGE_SIZE
-          });
 
-        const accounts =
-          holderResult?.token_accounts || [];
-
-        if (!Array.isArray(accounts) ||
-            accounts.length === 0) {
-          break;
-        }
-
-        for (const account of accounts) {
-          const owner =
-            account?.owner;
-
-          if (!owner) {
-            continue;
+        const response = await fetch(
+          "/.netlify/functions/scan",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              address: address
+            })
           }
+        );
 
-          let rawAmount = 0n;
+        const data = await response.json();
 
-          try {
-            rawAmount =
-              BigInt(
-                String(
-                  account.amount ?? "0"
-                )
-              );
-          } catch {
-            rawAmount = 0n;
-          }
-
-          if (rawAmount <= 0n) {
-            continue;
-          }
-
-          analyzedAccounts++;
-
-          const oldAmount =
-            owners.get(owner) || 0n;
-
-          owners.set(
-            owner,
-            oldAmount + rawAmount
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+            "Unable to analyze token."
           );
         }
 
-        if (accounts.length < PAGE_SIZE) {
-          break;
-        }
+        renderResult(data);
 
-        page++;
-      } catch (e) {
-        holderScanError = e.message;
-        break;
+      } catch (error) {
+
+        document.getElementById("score")
+          .textContent = "ERROR";
+
+        document.getElementById("riskBadge")
+          .textContent = "ANALYSIS FAILED";
+
+        document.getElementById("signals")
+          .innerHTML =
+            '<div class="error">' +
+            escapeHtml(error.message) +
+            "</div>";
+
+      } finally {
+
+        button.disabled = false;
+        button.textContent = "SCAN TOKEN";
+
       }
     }
 
-    const holderCount =
-      owners.size;
+    function renderResult(data) {
 
-    // =====================================================
-    // TOP HOLDER
-    // =====================================================
+      const token = data.token || {};
+      const risk = data.risk || {};
+      const holders = data.holders || {};
 
-    let topHolderRaw = 0n;
-    let topHolderOwner = null;
+      document.getElementById("score")
+        .textContent =
+        (risk.score ?? "—") + " / 100";
 
-    for (const [owner, amount] of owners.entries()) {
-      if (amount > topHolderRaw) {
-        topHolderRaw = amount;
-        topHolderOwner = owner;
-      }
-    }
+      document.getElementById("riskBadge")
+        .textContent =
+        (risk.level || "UNKNOWN") + " RISK";
 
-    let topHolderPercent = null;
-    let topHolderAmount = null;
+      document.getElementById("tokenName")
+        .textContent =
+        token.name || "Unknown Token";
 
-    /*
-     * IMPORTANT:
-     * Calculate concentration using raw integer amounts.
-     * No floating-point division here.
-     */
-    if (
-      rawSupply !== null &&
-      topHolderRaw > 0n
-    ) {
-      try {
-        const rawSupplyBig =
-          BigInt(rawSupply);
+      document.getElementById("tokenSymbol")
+        .textContent =
+        token.symbol
+          ? "$" + token.symbol
+          : "UNKNOWN";
 
-        if (rawSupplyBig > 0n) {
-          topHolderPercent =
-            Number(
-              (topHolderRaw * 1000000n) /
-              rawSupplyBig
-            ) / 10000;
+      document.getElementById("tokenAddressResult")
+        .textContent =
+        token.address || "—";
 
-          if (
-            supplyDecimals !== null &&
-            Number.isInteger(supplyDecimals) &&
-            supplyDecimals >= 0 &&
-            supplyDecimals <= 18
-          ) {
-            topHolderAmount =
-              rawToNumber(
-                topHolderRaw.toString(),
-                supplyDecimals
-              );
-          }
-        }
-      } catch {
-        topHolderPercent = null;
-        topHolderAmount = null;
-      }
-    }
+      document.getElementById("supply")
+        .textContent =
+        formatNumber(token.supply);
 
-    // =====================================================
-    // RISK ENGINE
-    // =====================================================
+      document.getElementById("decimals")
+        .textContent =
+        token.decimals ?? "—";
 
-    let score = 10;
+      document.getElementById("price")
+        .textContent =
+        formatPrice(token.price);
 
-    const signals = [];
+      document.getElementById("program")
+        .textContent =
+        token.tokenProgram || "Identified";
 
-    // Mint authority
-    if (mintAuthority) {
-      score += 25;
-
-      signals.push({
-        level: "HIGH",
-        title: "Mint authority detected",
-        description:
-          "An active mint authority was detected and may be able to increase token supply."
-      });
-    } else {
-      signals.push({
-        level: "LOW",
-        title: "Mint authority not detected",
-        description:
-          "No active mint authority was returned."
-      });
-    }
-
-    // Freeze authority
-    if (freezeAuthority) {
-      score += 20;
-
-      signals.push({
-        level: "HIGH",
-        title: "Freeze authority detected",
-        description:
-          "An active freeze authority may be able to restrict token accounts."
-      });
-    } else {
-      signals.push({
-        level: "LOW",
-        title: "No freeze authority detected",
-        description:
-          "No active freeze authority was returned."
-      });
-    }
-
-    // Metadata
-    if (
-      name !== "Unknown Token" &&
-      symbol !== "UNKNOWN"
-    ) {
-      signals.push({
-        level: "LOW",
-        title: "Token metadata available",
-        description:
-          "Token name and symbol were successfully retrieved."
-      });
-    } else {
-      score += 10;
-
-      signals.push({
-        level: "MEDIUM",
-        title: "Token metadata incomplete",
-        description:
-          "Token metadata is missing or incomplete."
-      });
-    }
-
-    // Supply
-    if (
-      supply !== null &&
-      Number.isFinite(supply)
-    ) {
-      signals.push({
-        level: "LOW",
-        title: "Supply information available",
-        description:
-          "Total on-chain supply: " +
-          formatNumber(supply) +
-          " " +
-          symbol
-      });
-    } else {
-      score += 10;
-
-      signals.push({
-        level: "MEDIUM",
-        title: "Supply information unavailable",
-        description:
-          "The token supply could not be read from the Solana network."
-      });
-    }
-
-    // Price
-    if (price !== null) {
-      signals.push({
-        level: "LOW",
-        title: "Market price available",
-        description:
-          "Indexed price: $" +
-          formatPrice(price)
-      });
-    } else {
-      score += 10;
-
-      signals.push({
-        level: "MEDIUM",
-        title: "Market price unavailable",
-        description:
-          "No indexed market price was returned."
-      });
-    }
-
-    // Holder distribution
-    if (holderCount > 0) {
-      signals.push({
-        level: "LOW",
-        title: "Holder distribution analyzed",
-        description:
-          holderCount.toLocaleString() +
-          " unique holders detected across " +
-          analyzedAccounts.toLocaleString() +
-          " non-zero token accounts in the analyzed snapshot."
-      });
-    } else {
-      score += 5;
-
-      signals.push({
-        level: "MEDIUM",
-        title: "Holder distribution unavailable",
-        description:
-          holderScanError
-            ? "Holder data could not be retrieved from Helius."
-            : "No non-zero token holders were returned."
-      });
-    }
-
-    // Top holder concentration
-    if (
-      topHolderPercent !== null &&
-      Number.isFinite(topHolderPercent)
-    ) {
-      if (topHolderPercent >= 50) {
-        score += 30;
-
-        signals.push({
-          level: "CRITICAL",
-          title: "Very high holder concentration",
-          description:
-            "The largest detected holder controls approximately " +
-            topHolderPercent.toFixed(2) +
-            "% of total supply."
-        });
-      } else if (topHolderPercent >= 25) {
-        score += 20;
-
-        signals.push({
-          level: "HIGH",
-          title: "High holder concentration",
-          description:
-            "The largest detected holder controls approximately " +
-            topHolderPercent.toFixed(2) +
-            "% of total supply."
-        });
-      } else if (topHolderPercent >= 10) {
-        score += 10;
-
-        signals.push({
-          level: "MEDIUM",
-          title: "Moderate holder concentration",
-          description:
-            "The largest detected holder controls approximately " +
-            topHolderPercent.toFixed(2) +
-            "% of total supply."
-        });
+      if (
+        holders.holderCount !== null &&
+        holders.holderCount !== undefined
+      ) {
+        document.getElementById("holderCount")
+          .textContent =
+          Number(holders.holderCount)
+            .toLocaleString() +
+          " holders";
       } else {
-        signals.push({
-          level: "LOW",
-          title: "Low top-holder concentration",
-          description:
-            "The largest detected holder controls approximately " +
-            topHolderPercent.toFixed(2) +
-            "% of total supply."
-        });
+        document.getElementById("holderCount")
+          .textContent =
+          "Unavailable";
       }
-    } else {
-      signals.push({
-        level: "INFO",
-        title: "Holder concentration unavailable",
-        description:
-          "A reliable top-holder percentage could not be calculated from the available holder snapshot."
+
+      const concentration =
+        Number(holders.topHolderPercent);
+
+      if (
+        Number.isFinite(concentration) &&
+        concentration >= 0
+      ) {
+
+        const safePercent =
+          Math.min(100, concentration);
+
+        document.getElementById(
+          "topHolderPercent"
+        ).textContent =
+          concentration.toFixed(2) + "%";
+
+        document.getElementById(
+          "holderBar"
+        ).style.width =
+          safePercent + "%";
+
+      } else {
+
+        document.getElementById(
+          "topHolderPercent"
+        ).textContent =
+          "Unavailable";
+
+        document.getElementById(
+          "holderBar"
+        ).style.width =
+          "0%";
+      }
+
+      renderSignals(risk.signals || []);
+
+      document.getElementById("note")
+        .textContent =
+        data.disclaimer ||
+        "KYVORA provides risk indicators for research purposes.";
+    }
+
+    function renderSignals(signals) {
+
+      const container =
+        document.getElementById("signals");
+
+      container.innerHTML = "";
+
+      if (!signals.length) {
+        container.innerHTML =
+          '<div class="error">' +
+          "No risk signals returned." +
+          "</div>";
+
+        return;
+      }
+
+      signals.forEach(signal => {
+
+        const div =
+          document.createElement("div");
+
+        div.className = "signal";
+
+        div.innerHTML = `
+          <div class="signal-head">
+            <div class="signal-title">
+              ${escapeHtml(signal.title || "Signal")}
+            </div>
+
+            <div class="signal-level">
+              ${escapeHtml(signal.level || "INFO")}
+            </div>
+          </div>
+
+          <div class="signal-description">
+            ${escapeHtml(
+              signal.description || ""
+            )}
+          </div>
+        `;
+
+        container.appendChild(div);
       });
     }
 
-    // Token program
-    signals.push({
-      level: "LOW",
-      title: "Token program identified",
-      description:
-        "Token program: " +
-        tokenProgram
-    });
+    function resetResult() {
 
-    score =
-      Math.max(
-        0,
-        Math.min(
-          100,
-          score
-        )
-      );
+      document.getElementById("score")
+        .textContent = "—";
 
-    let level = "LOW";
+      document.getElementById("riskBadge")
+        .textContent = "ANALYZING";
 
-    if (score >= 75) {
-      level = "CRITICAL";
-    } else if (score >= 50) {
-      level = "HIGH";
-    } else if (score >= 30) {
-      level = "MEDIUM";
+      document.getElementById("tokenName")
+        .textContent = "—";
+
+      document.getElementById("tokenSymbol")
+        .textContent = "—";
+
+      document.getElementById("tokenAddressResult")
+        .textContent = "—";
+
+      document.getElementById("supply")
+        .textContent = "—";
+
+      document.getElementById("decimals")
+        .textContent = "—";
+
+      document.getElementById("price")
+        .textContent = "—";
+
+      document.getElementById("program")
+        .textContent = "—";
+
+      document.getElementById("holderCount")
+        .textContent = "—";
+
+      document.getElementById("topHolderPercent")
+        .textContent = "—";
+
+      document.getElementById("holderBar")
+        .style.width = "0%";
+
+      document.getElementById("signals")
+        .innerHTML = "";
+
+      document.getElementById("note")
+        .textContent = "";
     }
 
-    // =====================================================
-    // FINAL RESPONSE
-    // =====================================================
+    function formatNumber(value) {
 
-    return response(200, {
-      success: true,
+      if (
+        value === null ||
+        value === undefined ||
+        value === ""
+      ) {
+        return "Unavailable";
+      }
 
-      scanner: {
-        name: "KYVORA",
-        version: "FINAL"
-      },
+      const number = Number(value);
 
-      token: {
-        address: address,
-        name: name,
-        symbol: symbol,
-        decimals:
-          supplyDecimals ??
-          decimalsFromAsset ??
-          0,
-        supply: supply,
-        rawSupply: rawSupply,
-        price: price,
-        tokenProgram: tokenProgram
-      },
+      if (!Number.isFinite(number)) {
+        return "Unavailable";
+      }
 
-      holders: {
-        holderCount: holderCount,
-        topHolderPercent:
-          topHolderPercent,
-        topHolderAmount:
-          topHolderAmount,
-        topHolderOwner:
-          topHolderOwner,
-        analyzedAccounts:
-          analyzedAccounts
-      },
-
-      risk: {
-        score: score,
-        level: level,
-        signals: signals
-      },
-
-      disclaimer:
-        "KYVORA provides risk indicators for research purposes only and does not guarantee that a token is safe or malicious.",
-
-      source: "Helius"
-    });
-
-  } catch (error) {
-    console.error(
-      "KYVORA scanner error:",
-      error
-    );
-
-    return response(500, {
-      success: false,
-      error:
-        error.message ||
-        "Unable to analyze token."
-    });
-  }
-};
-
-
-// =========================================================
-// RESPONSE HELPER
-// =========================================================
-
-function response(statusCode, data) {
-  return {
-    statusCode: statusCode,
-
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Methods": "POST, OPTIONS"
-    },
-
-    body: JSON.stringify(data)
-  };
-}
-
-
-// =========================================================
-// RAW INTEGER → DECIMAL NUMBER
-// =========================================================
-
-function rawToNumber(raw, decimals) {
-  try {
-    const value = BigInt(String(raw));
-    const d = Number(decimals);
-
-    if (!Number.isInteger(d) || d < 0 || d > 18) {
-      return null;
+      return new Intl.NumberFormat(
+        "en-US",
+        {
+          maximumFractionDigits: 6
+        }
+      ).format(number);
     }
 
-    if (d === 0) {
-      return Number(value);
+    function formatPrice(value) {
+
+      if (
+        value === null ||
+        value === undefined ||
+        value === ""
+      ) {
+        return "Unavailable";
+      }
+
+      const number = Number(value);
+
+      if (!Number.isFinite(number)) {
+        return "Unavailable";
+      }
+
+      if (number < 0.000001) {
+        return "$" + number.toFixed(10);
+      }
+
+      if (number < 1) {
+        return "$" + number.toFixed(6);
+      }
+
+      return "$" + number.toFixed(4);
     }
 
-    const divisor = 10n ** BigInt(d);
+    function escapeHtml(value) {
 
-    const whole = value / divisor;
-    const fraction = value % divisor;
-
-    if (fraction === 0n) {
-      return Number(whole);
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
+  </script>
 
-    const fractionText =
-      fraction
-        .toString()
-        .padStart(d, "0")
-        .replace(/0+$/, "");
-
-    return Number(
-      whole.toString() +
-      "." +
-      fractionText
-    );
-  } catch {
-    return null;
-  }
-}
-
-
-// =========================================================
-// DISPLAY HELPERS
-// =========================================================
-
-function formatNumber(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    !Number.isFinite(Number(value))
-  ) {
-    return "Unavailable";
-  }
-
-  return Number(value).toLocaleString(
-    "en-US",
-    {
-      maximumFractionDigits: 6
-    }
-  );
-}
-
-
-function formatPrice(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    !Number.isFinite(Number(value))
-  ) {
-    return "Unavailable";
-  }
-
-  const number = Number(value);
-
-  if (number < 0.000001) {
-    return number.toFixed(10);
-  }
-
-  if (number < 1) {
-    return number.toFixed(6);
-  }
-
-  return number.toFixed(4);
-}
+</body>
+</html>
