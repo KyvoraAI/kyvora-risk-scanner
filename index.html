@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KYVORA Risk Scanner</title>
+
+  <title>KYVORA — Crypto Risk Intelligence</title>
 
   <style>
     * {
@@ -14,164 +15,257 @@
 
     body {
       min-height: 100vh;
-      background: #05070b;
+      background:
+        radial-gradient(circle at top, #111827 0%, #05070b 45%);
       color: #ffffff;
       font-family: Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
+      padding: 35px 18px;
     }
 
     .container {
       width: 100%;
-      max-width: 700px;
+      max-width: 760px;
+      margin: auto;
+    }
+
+    .brand {
       text-align: center;
+      margin-bottom: 35px;
     }
 
     .logo {
-      font-size: 42px;
-      font-weight: 800;
-      letter-spacing: 8px;
+      font-size: 40px;
+      font-weight: 900;
+      letter-spacing: 9px;
       color: #f4c84a;
-      margin-bottom: 10px;
     }
 
     .tagline {
-      color: #8f98a8;
-      margin-bottom: 40px;
-      font-size: 15px;
+      margin-top: 8px;
+      color: #8993a5;
+      font-size: 12px;
+      letter-spacing: 2px;
     }
 
     .card {
-      background: #0b0f17;
+      background: rgba(11, 15, 23, 0.94);
       border: 1px solid #202938;
-      border-radius: 18px;
+      border-radius: 22px;
       padding: 30px;
-      box-shadow: 0 0 40px rgba(0, 110, 255, 0.08);
+      box-shadow: 0 20px 70px rgba(0,0,0,.35);
+    }
+
+    .eyebrow {
+      color: #f4c84a;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
     }
 
     h1 {
-      font-size: 28px;
+      font-size: 30px;
       margin-bottom: 10px;
     }
 
     .description {
-      color: #9ca6b5;
+      color: #929caf;
+      line-height: 1.6;
       margin-bottom: 25px;
-      line-height: 1.5;
     }
 
     input {
       width: 100%;
-      padding: 16px;
+      padding: 17px;
       background: #05070b;
       border: 1px solid #303a4d;
-      border-radius: 10px;
+      border-radius: 12px;
       color: white;
       font-size: 14px;
       outline: none;
-      margin-bottom: 15px;
+      margin-bottom: 12px;
     }
 
     input:focus {
-      border-color: #1976ff;
+      border-color: #f4c84a;
     }
 
     button {
       width: 100%;
-      padding: 16px;
+      padding: 17px;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       background: #f4c84a;
       color: #05070b;
-      font-size: 16px;
-      font-weight: 700;
+      font-size: 15px;
+      font-weight: 900;
       cursor: pointer;
-    }
-
-    button:hover {
-      opacity: 0.9;
+      letter-spacing: 1px;
     }
 
     button:disabled {
-      opacity: 0.6;
+      opacity: .6;
       cursor: wait;
     }
 
     .result {
       display: none;
-      margin-top: 25px;
-      padding: 20px;
-      border-radius: 12px;
+      margin-top: 28px;
+    }
+
+    .risk-card {
       background: #080c13;
       border: 1px solid #263246;
-      text-align: left;
+      border-radius: 18px;
+      padding: 24px;
+      text-align: center;
     }
 
-    .result h2 {
-      margin-bottom: 12px;
-    }
-
-    .score {
-      font-size: 36px;
-      font-weight: 800;
-      color: #f4c84a;
+    .analysis-title {
+      color: #9ca6b5;
+      font-size: 12px;
+      letter-spacing: 2px;
       margin-bottom: 10px;
     }
 
-    .level {
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 15px;
+    .score {
+      font-size: 54px;
+      font-weight: 900;
+      color: #f4c84a;
     }
 
-    .token-info {
-      color: #c5ccd8;
-      font-size: 14px;
-      line-height: 1.7;
-      margin-bottom: 15px;
-      word-break: break-word;
-    }
-
-    .signals {
-      margin-top: 15px;
-    }
-
-    .signal {
-      padding: 12px;
+    .risk-level {
+      display: inline-block;
       margin-top: 10px;
-      border: 1px solid #263246;
-      border-radius: 8px;
-      background: #0b1019;
+      padding: 8px 16px;
+      border-radius: 999px;
+      background: #171b24;
+      color: #f4c84a;
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 1px;
     }
 
-    .signal-title {
-      font-weight: 700;
+    .token-card {
+      margin-top: 15px;
+      padding: 20px;
+      background: #080c13;
+      border: 1px solid #263246;
+      border-radius: 16px;
+    }
+
+    .token-name {
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .token-symbol {
+      color: #f4c84a;
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .detail {
+      padding: 13px;
+      background: #0c111a;
+      border-radius: 10px;
+      border: 1px solid #1e2735;
+    }
+
+    .detail-label {
+      color: #737e90;
+      font-size: 11px;
       margin-bottom: 5px;
     }
 
+    .detail-value {
+      font-size: 14px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .signals-title {
+      margin-top: 25px;
+      margin-bottom: 12px;
+      font-size: 17px;
+    }
+
+    .signal {
+      margin-top: 10px;
+      padding: 15px;
+      background: #080c13;
+      border: 1px solid #263246;
+      border-radius: 12px;
+    }
+
+    .signal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .signal-title {
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .signal-level {
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 1px;
+    }
+
     .signal-description {
-      color: #9ca6b5;
-      font-size: 13px;
+      color: #8993a5;
+      font-size: 12px;
       line-height: 1.5;
     }
 
     .note {
-      color: #8f98a8;
-      font-size: 13px;
-      margin-top: 15px;
-      line-height: 1.5;
+      margin-top: 18px;
+      color: #687386;
+      font-size: 11px;
+      line-height: 1.6;
+      text-align: center;
     }
 
     .error {
       color: #ff8f8f;
+      text-align: center;
+      padding: 20px;
     }
 
     footer {
+      text-align: center;
       margin-top: 25px;
-      color: #596273;
-      font-size: 12px;
+      color: #505a6b;
+      font-size: 11px;
+    }
+
+    @media (max-width: 520px) {
+      .card {
+        padding: 22px;
+      }
+
+      .logo {
+        font-size: 32px;
+      }
+
+      h1 {
+        font-size: 25px;
+      }
+
+      .details {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -180,18 +274,20 @@
 
   <div class="container">
 
-    <div class="logo">KYVORA</div>
-
-    <div class="tagline">
-      AI-POWERED CRYPTO RISK INTELLIGENCE
+    <div class="brand">
+      <div class="logo">KYVORA</div>
+      <div class="tagline">AI-POWERED CRYPTO RISK INTELLIGENCE</div>
     </div>
 
     <div class="card">
 
+      <div class="eyebrow">SOLANA SECURITY</div>
+
       <h1>Risk Scanner</h1>
 
       <p class="description">
-        Analyze a Solana token address and understand its potential risk signals.
+        Analyze a Solana token and identify important risk indicators
+        before making a decision.
       </p>
 
       <input
@@ -206,32 +302,70 @@
 
       <div class="result" id="result">
 
-        <h2>KYVORA Analysis</h2>
+        <div class="risk-card">
 
-        <div class="score" id="score">
-          —
+          <div class="analysis-title">
+            KYVORA RISK SCORE
+          </div>
+
+          <div class="score" id="score">—</div>
+
+          <div class="risk-level" id="riskLevel">
+            —
+          </div>
+
         </div>
 
-        <div class="level" id="level">
-          —
+        <div class="token-card">
+
+          <div class="token-name" id="tokenName">
+            —
+          </div>
+
+          <div class="token-symbol" id="tokenSymbol">
+            —
+          </div>
+
+          <div class="details">
+
+            <div class="detail">
+              <div class="detail-label">SUPPLY</div>
+              <div class="detail-value" id="supply">—</div>
+            </div>
+
+            <div class="detail">
+              <div class="detail-label">DECIMALS</div>
+              <div class="detail-value" id="decimals">—</div>
+            </div>
+
+            <div class="detail">
+              <div class="detail-label">PRICE</div>
+              <div class="detail-value" id="price">—</div>
+            </div>
+
+            <div class="detail">
+              <div class="detail-label">PROGRAM</div>
+              <div class="detail-value" id="program">—</div>
+            </div>
+
+          </div>
+
         </div>
 
-        <div class="token-info" id="tokenInfo">
-        </div>
+        <h2 class="signals-title">
+          Risk Signals
+        </h2>
 
-        <div class="signals" id="signals">
-        </div>
+        <div id="signals"></div>
 
-        <p class="note" id="note">
-          Analysis powered by KYVORA and Helius data.
-        </p>
+        <p class="note" id="note"></p>
 
       </div>
 
     </div>
 
     <footer>
-      KYVORA • Built for the Solana ecosystem • Launching soon
+      KYVORA • Built for the Solana ecosystem
     </footer>
 
   </div>
@@ -239,14 +373,14 @@
   <script>
     async function scanToken() {
 
-      const address = document.getElementById("tokenAddress").value.trim();
-      const result = document.getElementById("result");
-      const score = document.getElementById("score");
-      const level = document.getElementById("level");
-      const tokenInfo = document.getElementById("tokenInfo");
-      const signals = document.getElementById("signals");
-      const note = document.getElementById("note");
-      const button = document.getElementById("scanButton");
+      const address =
+        document.getElementById("tokenAddress").value.trim();
+
+      const result =
+        document.getElementById("result");
+
+      const button =
+        document.getElementById("scanButton");
 
       if (!address) {
         alert("Please enter a Solana token address.");
@@ -254,51 +388,86 @@
       }
 
       result.style.display = "block";
+
       button.disabled = true;
       button.textContent = "ANALYZING...";
-      score.textContent = "—";
-      level.textContent = "Checking token...";
-      tokenInfo.innerHTML = "";
-      signals.innerHTML = "";
-      note.textContent = "";
+
+      document.getElementById("score").textContent = "—";
+      document.getElementById("riskLevel").textContent = "CHECKING";
+      document.getElementById("signals").innerHTML = "";
+      document.getElementById("note").textContent = "";
 
       try {
 
-        const response = await fetch("/.netlify/functions/scan", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            address: address
-          })
-        });
+        const response = await fetch(
+          "/.netlify/functions/scan",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              address: address
+            })
+          }
+        );
 
         const data = await response.json();
 
         if (!response.ok || !data.success) {
-          throw new Error(data.error || "Unable to analyze token.");
+          throw new Error(
+            data.error || "Unable to analyze token."
+          );
         }
 
-        score.textContent = data.risk.score + " / 100";
-        level.textContent = "Risk Level: " + data.risk.level;
+        document.getElementById("score").textContent =
+          data.risk.score + " / 100";
 
-        tokenInfo.innerHTML = `
-          <strong>Name:</strong> ${escapeHtml(data.token.name)}<br>
-          <strong>Symbol:</strong> ${escapeHtml(data.token.symbol)}<br>
-          <strong>Decimals:</strong> ${data.token.decimals}<br>
-          <strong>Supply:</strong> ${data.token.supply}
-        `;
+        document.getElementById("riskLevel").textContent =
+          data.risk.level + " RISK";
+
+        document.getElementById("tokenName").textContent =
+          data.token.name;
+
+        document.getElementById("tokenSymbol").textContent =
+          data.token.symbol;
+
+        document.getElementById("decimals").textContent =
+          data.token.decimals;
+
+        document.getElementById("supply").textContent =
+          data.token.supply !== null
+            ? formatNumber(data.token.supply)
+            : "Unavailable";
+
+        document.getElementById("price").textContent =
+          data.token.price !== null
+            ? "$" + data.token.price
+            : "Unavailable";
+
+        document.getElementById("program").textContent =
+          data.token.tokenProgram || "Identified";
+
+        const signals =
+          document.getElementById("signals");
 
         data.risk.signals.forEach(signal => {
 
           const div = document.createElement("div");
+
           div.className = "signal";
 
           div.innerHTML = `
-            <div class="signal-title">
-              ${escapeHtml(signal.level)} — ${escapeHtml(signal.title)}
+            <div class="signal-head">
+              <div class="signal-title">
+                ${escapeHtml(signal.title)}
+              </div>
+
+              <div class="signal-level">
+                ${escapeHtml(signal.level)}
+              </div>
             </div>
+
             <div class="signal-description">
               ${escapeHtml(signal.description)}
             </div>
@@ -307,16 +476,21 @@
           signals.appendChild(div);
         });
 
-        note.textContent = "Analysis completed using live token data.";
+        document.getElementById("note").textContent =
+          data.disclaimer;
 
       } catch (error) {
 
-        score.textContent = "ERROR";
-        level.textContent = "Analysis failed";
-        tokenInfo.innerHTML =
-          '<div class="error">' + escapeHtml(error.message) + "</div>";
-        signals.innerHTML = "";
-        note.textContent = "Please check the token address and try again.";
+        document.getElementById("score").textContent =
+          "ERROR";
+
+        document.getElementById("riskLevel").textContent =
+          "ANALYSIS FAILED";
+
+        document.getElementById("signals").innerHTML =
+          '<div class="error">' +
+          escapeHtml(error.message) +
+          "</div>";
 
       } finally {
 
@@ -324,6 +498,12 @@
         button.textContent = "SCAN TOKEN";
 
       }
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("en-US", {
+        maximumFractionDigits: 6
+      }).format(value);
     }
 
     function escapeHtml(value) {
