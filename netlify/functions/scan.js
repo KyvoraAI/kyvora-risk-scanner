@@ -26,7 +26,9 @@ exports.handler = async function (event) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: "Token address is required" }),
+        body: JSON.stringify({
+          error: "Token address is required",
+        }),
       };
     }
 
@@ -36,32 +38,44 @@ exports.handler = async function (event) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: "HELIUS_API_KEY is not configured" }),
+        body: JSON.stringify({
+          error: "HELIUS_API_KEY is not configured",
+        }),
       };
     }
 
-    const response = await fetch(
-      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "kyvora",
-          method: "getAsset",
-          params: {
-            id: address,
-            displayOptions: {
-              showFungible: true,
-            },
+    const heliusUrl =
+      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+
+    // -----------------------------------------
+    // 1. TOKEN INFORMATION
+    // -----------------------------------------
+
+    const assetResponse = await fetch(heliusUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "kyvora-asset",
+        method: "getAsset",
+        params: {
+          id: address,
+          displayOptions: {
+            showFungible: true,
           },
-        }),
-      }
-    );
+        },
+      }),
+    });
 
-    const json = await response.json();
+    const assetJson = await assetResponse.json();
 
-    if (!response.ok || json.error || !json.result) {
+    if (
+      !assetResponse.ok ||
+      assetJson.error ||
+      !assetJson.result
+    ) {
       return {
         statusCode: 400,
         headers,
@@ -71,7 +85,7 @@ exports.handler = async function (event) {
       };
     }
 
-    const asset = json.result;
+    const asset = assetJson.result;
     const tokenInfo = asset.token_info || {};
     const metadata = asset.content?.metadata || {};
 
@@ -80,7 +94,6 @@ exports.handler = async function (event) {
 
     const decimals = Number(tokenInfo.decimals ?? 0);
 
-    // Helius may return supply in different locations/formats.
     let rawSupply = tokenInfo.supply;
 
     if (rawSupply === undefined || rawSupply === null) {
@@ -105,14 +118,111 @@ exports.handler = async function (event) {
         ? Number(tokenInfo.price_info.price_per_token)
         : null;
 
-    let riskScore = 10;
-    const signals = [];
+    // -----------------------------------------
+    // 2. AUTHORITIES
+    // -----------------------------------------
 
     const mintAuthority =
       tokenInfo.mint_authority ||
       asset.mint_authority ||
       null;
 
+    const freezeAuthority =
+      tokenInfo.freeze_authority ||
+      asset.freeze_authority ||
+      null;
+
+    // -----------------------------------------
+    // 3. HOLDER DATA
+    // -----------------------------------------
+
+    let holderCount = null;
+    let topHolderPercent = null;
+    let topHolderAmount = null;
+
+    try {
+      const holderResponse = await fetch(heliusUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "kyvora-holders",
+          method: "getTokenAccounts",
+          params: {
+            mint: address,
+            page: 1,
+            limit: 1000,
+            displayOptions: {},
+          },
+        }),
+      });
+
+      const holderJson = await holderResponse.json();
+
+      const accounts =
+        holderJson.result?.token_accounts || [];
+
+      if (accounts.length > 0) {
+        const owners = new Map();
+
+        for (const account of accounts) {
+          const owner = account.owner;
+          const amount = Number(account.amount || 0);
+
+          if (!owner) continue;
+
+          owners.set(
+            owner,
+            (owners.get(owner) || 0) + amount
+          );
+        }
+
+        holderCount = owners.size;
+
+        const balances = Array.from(
+          owners.values()
+        ).sort((a, b) => b - a);
+
+        if (
+          balances.length > 0 &&
+          supply !== null &&
+          supply > 0
+        ) {
+          const divisor = Math.pow(10, decimals);
+
+          const largestRawAmount = balances[0];
+
+          topHolderAmount =
+            decimals > 0
+              ? largestRawAmount / divisor
+              : largestRawAmount;
+
+          topHolderPercent =
+            (topHolderAmount / supply) * 100;
+
+          if (!Number.isFinite(topHolderPercent)) {
+            topHolderPercent = null;
+          }
+        }
+      }
+    } catch (holderError) {
+      console.error(
+        "Holder analysis error:",
+        holderError
+      );
+    }
+
+    // -----------------------------------------
+    // 4. KYVORA RISK ENGINE
+    // -----------------------------------------
+
+    let riskScore = 10;
+
+    const signals = [];
+
+    // Mint authority
     if (mintAuthority) {
       riskScore += 25;
 
@@ -131,11 +241,7 @@ exports.handler = async function (event) {
       });
     }
 
-    const freezeAuthority =
-      tokenInfo.freeze_authority ||
-      asset.freeze_authority ||
-      null;
-
+    // Freeze authority
     if (freezeAuthority) {
       riskScore += 20;
 
@@ -154,6 +260,7 @@ exports.handler = async function (event) {
       });
     }
 
+    // Metadata
     if (!name || !symbol) {
       riskScore += 10;
 
@@ -172,6 +279,7 @@ exports.handler = async function (event) {
       });
     }
 
+    // Supply
     if (supply === null) {
       riskScore += 10;
 
@@ -179,7 +287,7 @@ exports.handler = async function (event) {
         level: "MEDIUM",
         title: "Supply information unavailable",
         description:
-          "A valid token supply was not returned by the data provider.",
+          "A valid token supply was not returned.",
       });
     } else {
       signals.push({
@@ -190,6 +298,7 @@ exports.handler = async function (event) {
       });
     }
 
+    // Price
     if (price === null || !Number.isFinite(price)) {
       riskScore += 10;
 
@@ -203,10 +312,71 @@ exports.handler = async function (event) {
       signals.push({
         level: "LOW",
         title: "Market price available",
-        description: `Indexed price: $${price}`,
+        description:
+          `Indexed price: $${price}`,
       });
     }
 
+    // Holder analysis
+    if (holderCount !== null) {
+      signals.push({
+        level: "LOW",
+        title: "Holder distribution analyzed",
+        description:
+          `${holderCount.toLocaleString()} unique holders detected in the analyzed token-account snapshot.`,
+      });
+    } else {
+      signals.push({
+        level: "MEDIUM",
+        title: "Holder distribution unavailable",
+        description:
+          "Holder data could not be retrieved for this scan.",
+      });
+    }
+
+    // Top holder concentration
+    if (
+      topHolderPercent !== null &&
+      Number.isFinite(topHolderPercent)
+    ) {
+      if (topHolderPercent >= 50) {
+        riskScore += 30;
+
+        signals.push({
+          level: "CRITICAL",
+          title: "Very high top-holder concentration",
+          description:
+            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+        });
+      } else if (topHolderPercent >= 25) {
+        riskScore += 20;
+
+        signals.push({
+          level: "HIGH",
+          title: "High top-holder concentration",
+          description:
+            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+        });
+      } else if (topHolderPercent >= 10) {
+        riskScore += 10;
+
+        signals.push({
+          level: "MEDIUM",
+          title: "Moderate top-holder concentration",
+          description:
+            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+        });
+      } else {
+        signals.push({
+          level: "LOW",
+          title: "Top-holder concentration appears limited",
+          description:
+            `The largest detected holder represents approximately ${topHolderPercent.toFixed(2)}% of reported supply.`,
+        });
+      }
+    }
+
+    // Token program
     const tokenProgram =
       tokenInfo.token_program ||
       tokenInfo.program ||
@@ -222,7 +392,14 @@ exports.handler = async function (event) {
       });
     }
 
-    riskScore = Math.max(0, Math.min(100, riskScore));
+    // -----------------------------------------
+    // FINAL SCORE
+    // -----------------------------------------
+
+    riskScore = Math.max(
+      0,
+      Math.min(100, riskScore)
+    );
 
     let riskLevel = "LOW";
 
@@ -237,12 +414,13 @@ exports.handler = async function (event) {
     return {
       statusCode: 200,
       headers,
+
       body: JSON.stringify({
         success: true,
 
         scanner: {
           name: "KYVORA",
-          version: "2.1",
+          version: "3.0",
         },
 
         token: {
@@ -253,6 +431,13 @@ exports.handler = async function (event) {
           supply,
           price,
           tokenProgram,
+        },
+
+        holders: {
+          holderCount,
+          topHolderPercent,
+          topHolderAmount,
+          analyzedAccounts: 1000,
         },
 
         risk: {
@@ -267,8 +452,12 @@ exports.handler = async function (event) {
         source: "Helius",
       }),
     };
+
   } catch (error) {
-    console.error("KYVORA scanner error:", error);
+    console.error(
+      "KYVORA scanner error:",
+      error
+    );
 
     return {
       statusCode: 500,
