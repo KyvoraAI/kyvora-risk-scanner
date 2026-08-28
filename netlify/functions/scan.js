@@ -53,7 +53,8 @@ exports.handler = async function (event) {
       };
     }
 
-    const rpc = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+    const rpc =
+      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
 
     async function rpcCall(method, params) {
       const response = await fetch(rpc, {
@@ -98,15 +99,18 @@ exports.handler = async function (event) {
     const tokenInfo = asset.token_info || {};
     const metadata = asset.content?.metadata || {};
 
-    const name = metadata.name || "Unknown Token";
-    const symbol = metadata.symbol || "UNKNOWN";
+    const name =
+      metadata.name || "Unknown Token";
 
-    const decimals = Number(tokenInfo.decimals ?? 0);
+    const symbol =
+      metadata.symbol || "UNKNOWN";
 
-    /*
-      Helius can expose supply in different fields.
-      We keep the raw value separate and normalize it carefully.
-    */
+    const decimals =
+      Number(tokenInfo.decimals ?? 0);
+
+    // ----------------------------------------
+    // SUPPLY
+    // ----------------------------------------
 
     let rawSupply = null;
 
@@ -122,10 +126,6 @@ exports.handler = async function (event) {
       rawSupply !== null &&
       Number.isFinite(rawSupply)
     ) {
-      /*
-        Helius fungible token supply is normally represented
-        according to token decimals. Avoid converting twice.
-      */
       supply =
         decimals > 0
           ? rawSupply / Math.pow(10, decimals)
@@ -140,25 +140,26 @@ exports.handler = async function (event) {
       tokenInfo.price_info?.price_per_token;
 
     const price =
-      // ----------------------------------------
-// MARKET CAP
-// ----------------------------------------
-
-let marketCap = null;
-
-if (
-  supply !== null &&
-  price !== null &&
-  Number.isFinite(supply) &&
-  Number.isFinite(price)
-) {
-  marketCap = supply * price;
-}
       priceValue !== undefined &&
       priceValue !== null &&
       Number.isFinite(Number(priceValue))
         ? Number(priceValue)
         : null;
+
+    // ----------------------------------------
+    // MARKET CAP
+    // ----------------------------------------
+
+    let marketCap = null;
+
+    if (
+      supply !== null &&
+      price !== null &&
+      Number.isFinite(supply) &&
+      Number.isFinite(price)
+    ) {
+      marketCap = supply * price;
+    }
 
     // ----------------------------------------
     // AUTHORITIES
@@ -212,9 +213,8 @@ if (
 
         if (!owner) continue;
 
-        const amount = Number(
-          account.amount || 0
-        );
+        const amount =
+          Number(account.amount || 0);
 
         if (!Number.isFinite(amount)) continue;
 
@@ -226,16 +226,17 @@ if (
 
       holderCount = owners.size;
 
-      const balances = Array.from(
-        owners.values()
-      ).sort((a, b) => b - a);
+      const balances =
+        Array.from(owners.values())
+          .sort((a, b) => b - a);
 
       if (
         balances.length > 0 &&
         supply !== null &&
         supply > 0
       ) {
-        const rawTopAmount = balances[0];
+        const rawTopAmount =
+          balances[0];
 
         topHolderAmount =
           decimals > 0
@@ -303,7 +304,10 @@ if (
       });
     }
 
-    if (name !== "Unknown Token" && symbol !== "UNKNOWN") {
+    if (
+      name !== "Unknown Token" &&
+      symbol !== "UNKNOWN"
+    ) {
       signals.push({
         level: "LOW",
         title: "Token metadata available",
@@ -357,6 +361,24 @@ if (
         title: "Market price unavailable",
         description:
           "No indexed market price was returned."
+      });
+    }
+
+    if (marketCap !== null) {
+      signals.push({
+        level: "LOW",
+        title: "Market cap calculated",
+        description:
+          `Estimated market cap: $${marketCap.toLocaleString("en-US", {
+            maximumFractionDigits: 2
+          })}`
+      });
+    } else {
+      signals.push({
+        level: "MEDIUM",
+        title: "Market cap unavailable",
+        description:
+          "Market cap could not be calculated because supply or price was unavailable."
       });
     }
 
@@ -441,6 +463,10 @@ if (
       level = "MEDIUM";
     }
 
+    // ----------------------------------------
+    // RESPONSE
+    // ----------------------------------------
+
     return {
       statusCode: 200,
       headers,
@@ -450,7 +476,7 @@ if (
 
         scanner: {
           name: "KYVORA",
-          version: "4.0"
+          version: "4.1"
         },
 
         token: {
@@ -460,6 +486,7 @@ if (
           decimals,
           supply,
           price,
+          marketCap,
           tokenProgram
         },
 
