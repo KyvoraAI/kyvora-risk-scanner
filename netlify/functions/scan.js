@@ -140,6 +140,20 @@ exports.handler = async function (event) {
       tokenInfo.price_info?.price_per_token;
 
     const price =
+      // ----------------------------------------
+// MARKET CAP
+// ----------------------------------------
+
+let marketCap = null;
+
+if (
+  supply !== null &&
+  price !== null &&
+  Number.isFinite(supply) &&
+  Number.isFinite(price)
+) {
+  marketCap = supply * price;
+}
       priceValue !== undefined &&
       priceValue !== null &&
       Number.isFinite(Number(priceValue))
