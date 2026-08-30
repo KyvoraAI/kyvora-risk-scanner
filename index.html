@@ -33,13 +33,16 @@
       text-align: center;
       margin-bottom: 30px;
     }
-.brand-logo {
-  display: block;
-  width: 86px;
-  height: 86px;
-  object-fit: contain;
-  margin: 0 auto 12px;
-}
+
+    .brand-logo {
+      display: block;
+      width: 86px;
+      height: 86px;
+      object-fit: contain;
+      margin: 0 auto 12px;
+      border-radius: 18px;
+    }
+
     .logo {
       color: #f4c84a;
       font-size: 40px;
@@ -80,10 +83,6 @@
       line-height: 1.6;
       font-size: 14px;
       margin-bottom: 22px;
-    }
-
-    .input-wrap {
-      position: relative;
     }
 
     input {
@@ -396,16 +395,27 @@
   <div class="container">
 
     <div class="brand">
-      <img src="/kyvora-logo.png" alt="KYVORA Logo" class="brand-logo">
+
+      <!-- KYVORA LOGO -->
+      <img
+        src="/IMG-20260829-WA0053.jpg"
+        alt="KYVORA Logo"
+        class="brand-logo"
+      >
+
       <div class="logo">KYVORA</div>
+
       <div class="tagline">
         AI-POWERED CRYPTO RISK INTELLIGENCE
       </div>
+
     </div>
 
     <main class="scanner">
 
-      <div class="eyebrow">SOLANA SECURITY INTELLIGENCE</div>
+      <div class="eyebrow">
+        SOLANA SECURITY INTELLIGENCE
+      </div>
 
       <h1>Risk Scanner</h1>
 
@@ -464,30 +474,22 @@
 
               <div class="detail">
                 <div class="detail-label">SUPPLY</div>
-                <div class="detail-value" id="supply">
-                  —
-                </div>
+                <div class="detail-value" id="supply">—</div>
               </div>
 
               <div class="detail">
                 <div class="detail-label">DECIMALS</div>
-                <div class="detail-value" id="decimals">
-                  —
-                </div>
+                <div class="detail-value" id="decimals">—</div>
               </div>
 
               <div class="detail">
                 <div class="detail-label">PRICE</div>
-                <div class="detail-value" id="price">
-                  —
-                </div>
+                <div class="detail-value" id="price">—</div>
               </div>
 
               <div class="detail">
                 <div class="detail-label">PROGRAM</div>
-                <div class="detail-value" id="program">
-                  —
-                </div>
+                <div class="detail-value" id="program">—</div>
               </div>
 
             </div>
@@ -499,6 +501,7 @@
         <div class="panel holder-panel">
 
           <div class="holder-header">
+
             <div class="section-title">
               Holder Distribution
             </div>
@@ -506,6 +509,7 @@
             <div class="holder-count" id="holderCount">
               —
             </div>
+
           </div>
 
           <div class="concentration">
@@ -545,6 +549,7 @@
   </div>
 
   <script>
+
     async function scanToken() {
 
       const address =
@@ -670,15 +675,19 @@
         holders.holderCount !== null &&
         holders.holderCount !== undefined
       ) {
+
         document.getElementById("holderCount")
           .textContent =
           Number(holders.holderCount)
             .toLocaleString() +
           " holders";
+
       } else {
+
         document.getElementById("holderCount")
           .textContent =
           "Unavailable";
+
       }
 
       const concentration =
@@ -713,6 +722,7 @@
           "holderBar"
         ).style.width =
           "0%";
+
       }
 
       renderSignals(risk.signals || []);
@@ -721,6 +731,7 @@
         .textContent =
         data.disclaimer ||
         "KYVORA provides risk indicators for research purposes.";
+
     }
 
     function renderSignals(signals) {
@@ -731,6 +742,7 @@
       container.innerHTML = "";
 
       if (!signals.length) {
+
         container.innerHTML =
           '<div class="error">' +
           "No risk signals returned." +
@@ -765,7 +777,9 @@
         `;
 
         container.appendChild(div);
+
       });
+
     }
 
     function resetResult() {
@@ -811,6 +825,7 @@
 
       document.getElementById("note")
         .textContent = "";
+
     }
 
     function formatNumber(value) {
@@ -835,6 +850,7 @@
           maximumFractionDigits: 6
         }
       ).format(number);
+
     }
 
     function formatPrice(value) {
@@ -862,6 +878,7 @@
       }
 
       return "$" + number.toFixed(4);
+
     }
 
     function escapeHtml(value) {
@@ -872,7 +889,9 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+
     }
+
   </script>
 
 </body>
